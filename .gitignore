@@ -1,0 +1,18 @@
+# Business Central AL Build and Package files
+.alpackages/
+*.app
+.alcache/
+rad.json
+
+# VS Code User credentials and settings
+.vscode/*.credentials.json
+.vscode/*.settings.json
+*.g.al
+
+# OS specific files
+Thumbs.db
+.DS_Store
+
+# Snapshots and sub-repos
+.snapshots/
+ponytail/

@@ -1,0 +1,12 @@
+{
+  "al.enableCodeAnalysis": true,
+  "al.codeAnalyzers": [
+    "${CodeCop}",
+    "${PerTenantExtensionCop}"
+  ],
+  "al.enableCodeActions": true,
+  "al.incrementalBuild": true,
+  "al.backgroundCodeAnalysis": true,
+  "al.packageCachePath": "./.alpackages",
+  "editor.formatOnSave": true
+}
