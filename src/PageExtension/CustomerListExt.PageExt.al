@@ -1,3 +1,5 @@
+namespace APSS.FileArchiving;
+
 pageextension 50100 "CustomerListExt" extends "Customer List"
 {
     layout
