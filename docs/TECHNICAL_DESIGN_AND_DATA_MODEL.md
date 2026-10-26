@@ -683,7 +683,7 @@ sequenceDiagram
     participant JQ as Job Queue (Background)
     participant Graph as Microsoft Graph API
     participant SP as SharePoint Online
-    actor Approver as IT Lead / Phê duyệt cấp 2
+    actor Approver as Phê duyệt cấp 2 / Approver
 
     Note over User, SP: PHA 1: QUÉT, TẠO HÀNG ĐỢI & UPLOAD BẤT ĐỒNG BỘ
     User->>UI: Nhập Cut-Off Date & Bấm "Preview / Dry Run"
@@ -788,9 +788,3 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
 |                         | **TC-23** | **Đo lường dung lượng sau khi purge**                 | Xác minh dung lượng Tenant Media và Incoming Document giảm thực tế trên Admin Center (sau chu kỳ cập nhật dung lượng của Microsoft). |
 
 ---
-
-## 12. KẾT LUẬN & TRẠNG THÁI HIỆN TẠI
-
-- Bản đặc tả kỹ thuật v1.1 này đã giải quyết triệt để toàn bộ 14 điểm phản biện của Tech Lead.
-- **Tiến độ mã nguồn:** Đang giữ nguyên trạng thái **chưa viết code** theo đúng chỉ đạo.
-- **Bước đi tiếp theo:** Trình bản cập nhật này cho Tech Lead phê duyệt. Sau khi Lead đồng thuận với kiến trúc và bộ Test Cases mở rộng, chúng ta sẽ bắt đầu bước đầu tiên: **Triển khai PoC kiểm nghiệm dọn dẹp Tenant Media trên Sandbox**.
