@@ -1,11 +1,14 @@
 # TÀI LIỆU THIẾT KẾ KỸ THUẬT & MÔ HÌNH DỮ LIỆU
+
 ## Dự án: Business Central File Archiving to SharePoint
-**Phiên bản:** 1.1 | **Trạng thái:** Chờ phê duyệt (Discovery & Technical Design - Đã cập nhật theo phản biện Tech Lead)  
-**Phạm vi:** Dynamics 365 Business Central Cloud SaaS (v28) & Microsoft SharePoint Online  
+
+**Phiên bản:** 1.1 | **Trạng thái:** Chờ phê duyệt (Discovery & Technical Design - Đã cập nhật)  
+**Phạm vi:** Dynamics 365 Business Central Cloud SaaS (v28) & Microsoft SharePoint Online
 
 ---
 
 ## MỤC LỤC
+
 1. [Tổng quan dự án & Phân loại dung lượng thực tế](#1-tổng-quan-dự-án--phân-loại-dung-lượng-thực-tế)
 2. [Nguyên tắc cốt lõi & Giới hạn đỏ (Safety Guardrails)](#2-nguyên-tắc-cốt-lõi--giới-hạn-đỏ-safety-guardrails)
 3. [Khảo sát dữ liệu nguồn & Xác minh Schema BC v28](#3-khảo-sát-dữ-liệu-nguồn--xác-minh-schema-bc-v28)
@@ -23,19 +26,23 @@
 ## 1. TỔNG QUAN DỰ ÁN & PHÂN LOẠI DUNG LƯỢNG THỰC TẾ
 
 ### 1.1. Hiện trạng Dung lượng Hệ thống
+
 Hệ thống Dynamics 365 Business Central Cloud SaaS đang vượt hạn mức dung lượng được cấp:
-* **Tổng dung lượng sử dụng:** **218.45 GB** / Hạn mức được cấp: **110 GB** (Vượt 198%).
-* **Cơ sở dữ liệu Production:** ~97.05 GB.
-* **Tenant Media:** ~**83.4 GB** trên 191,199 records (chiếm hơn 38% tổng dung lượng).
-* **Incoming Document Attachments (APSS-SG):** ~**4.05 GB** trên 19,413 records.
-* **Incoming Document Attachments (Test SG08):** ~**3.96 GB** trên 18,819 records.
+
+- **Tổng dung lượng sử dụng:** **218.45 GB** / Hạn mức được cấp: **110 GB** (Vượt 198%).
+- **Cơ sở dữ liệu Production:** ~97.05 GB.
+- **Tenant Media:** ~**83.4 GB** trên 191,199 records (chiếm hơn 38% tổng dung lượng).
+- **Incoming Document Attachments (APSS-SG):** ~**4.05 GB** trên 19,413 records.
+- **Incoming Document Attachments (Test SG08):** ~**3.96 GB** trên 18,819 records.
 
 ### 1.2. Phân loại "Dung lượng có thể thu hồi" vs "Tổng Tenant Media"
+
 > [!IMPORTANT]
 > **CẢNH BÁO VỀ SỐ LIỆU:** Con số 83.4 GB của `Tenant Media` **KHÔNG ĐỒNG NGHĨA** với việc có thể thu hồi toàn bộ 83.4 GB này.
 > Tuyệt đối không cam kết giải phóng toàn bộ 83.4 GB trước khi có báo cáo khảo sát (Discovery Report) phân loại chi tiết.
 
 Cần thực hiện báo cáo điều tra (Discovery Query chỉ đọc) trên bản sao Sandbox để bóc tách 83.4 GB thành 5 nhóm:
+
 1. **Media đang được `Document Attachment` (Table 1173) tham chiếu:** Đây là nhóm mục tiêu chính có thể archive.
 2. **Media được nhiều attachment record dùng chung (Shared Media Reference):** Xuất hiện khi copy chứng từ hoặc post hóa đơn. Cần xác định tỷ lệ dùng chung để tránh tính trùng dung lượng thu hồi.
 3. **Media không còn tham chiếu (Orphan Media):** Các file rác sót lại do xóa record nghiệp vụ trước đây nhưng BC chưa dọn ngầm. Nhóm này không có attachment record để điều phối archive.
@@ -48,13 +55,14 @@ Cần thực hiện báo cáo điều tra (Discovery Query chỉ đọc) trên b
 
 > [!CAUTION]
 > **CÁC NGUYÊN TẮC BẮT BUỘC TUÂN THỦ:**
+>
 > 1. **TUYỆT ĐỐI KHÔNG thao tác hoặc xóa trực tiếp trên bảng `Tenant Media` hay sử dụng Direct SQL.** Mọi thao tác phải thông qua API và Record chuẩn của BC để BC tự quản lý reference count.
 > 2. **TUYỆT ĐỐI KHÔNG can thiệp vào các bảng nghiệp vụ và chứng từ lưu trữ:**
->    * `Sales Header Archive` / `Sales Line Archive` (Table 5107, 5108)
->    * `Purchase Header Archive` / `Purchase Line Archive` (Table 5109, 5110)
->    * APSS SQ-to-PQ archive records
->    * Toàn bộ sổ cái giao dịch/kế toán (`G/L Entry`, `Cust. Ledger Entry`, v.v.)
->    * System Media và Application Media
+>    - `Sales Header Archive` / `Sales Line Archive` (Table 5107, 5108)
+>    - `Purchase Header Archive` / `Purchase Line Archive` (Table 5109, 5110)
+>    - APSS SQ-to-PQ archive records
+>    - Toàn bộ sổ cái giao dịch/kế toán (`G/L Entry`, `Cust. Ledger Entry`, v.v.)
+>    - System Media và Application Media
 > 3. **Không chỉnh sửa trực tiếp mã nguồn Production của APSS.** Đóng gói giải pháp trong **AL Extension độc lập**.
 > 4. **Tách rời tuyệt đối 2 pha: Upload vs. Purge.** Không bao giờ xóa file trên BC ngay sau khi upload nếu chưa qua quy trình phê duyệt (Secondary Approval Workflow).
 > 5. **Loại bỏ tính năng Restore ra khỏi Phase 1 (MVP):** Không đưa "Restore Attachment to BC" vào giai đoạn đầu vì rủi ro tạo duplicate Media và ghi sai source record rất cao. Phase 1 chỉ tập trung vào: Preview $\rightarrow$ Queue $\rightarrow$ Upload $\rightarrow$ Verify $\rightarrow$ Retain Link $\rightarrow$ Approval $\rightarrow$ Purge $\rightarrow$ Audit.
@@ -81,76 +89,86 @@ graph TD
 ```
 
 ### 3.1. Xác minh Table 1173 (`Document Attachment`)
-* **Khóa chính thực tế (PK):** `Table ID`, `Number`, `Document Type`, `Line No.`, `ID`.
-* **Trường định danh bất biến:** `SystemId` (GUID) — Ổn định và duy nhất cho từng bản ghi attachment, phù hợp làm thành phần cấu tạo khóa Idempotency.
-* **Trường chứa tệp nhị phân:** `Document Reference ID` (kiểu `Media`).
-* **Rủi ro Shared Media:** Một GUID trong `Tenant Media` có thể được nhiều bản ghi `Document Attachment` tham chiếu tới (ví dụ: đính kèm file vào Sales Order, khi Post thì BC tự copy bản ghi sang Posted Sales Invoice nhưng giữ nguyên Media GUID).
+
+- **Khóa chính thực tế (PK):** `Table ID`, `Number`, `Document Type`, `Line No.`, `ID`.
+- **Trường định danh bất biến:** `SystemId` (GUID) — Ổn định và duy nhất cho từng bản ghi attachment, phù hợp làm thành phần cấu tạo khóa Idempotency.
+- **Trường chứa tệp nhị phân:** `Document Reference ID` (kiểu `Media`).
+- **Rủi ro Shared Media:** Một GUID trong `Tenant Media` có thể được nhiều bản ghi `Document Attachment` tham chiếu tới (ví dụ: đính kèm file vào Sales Order, khi Post thì BC tự copy bản ghi sang Posted Sales Invoice nhưng giữ nguyên Media GUID).
 
 ### 3.2. Xác minh Table 133 (`Incoming Document Attachment`)
-* **Khóa chính thực tế (PK):** `Incoming Document Entry No.`, `Line No.`.
-* **Trường định danh bất biến:** `SystemId` (GUID).
-* **Trường chứa tệp nhị phân:** `Content` (kiểu `BLOB`). Không liên kết với `Tenant Media`.
-* **Cơ chế dọn dẹp:** Sử dụng codeunit chuẩn `Incoming Document Attachment Mgt.` hoặc xóa BLOB có kiểm soát bằng cách clear trường `Content` và cập nhật các trường cờ trạng thái liên quan.
+
+- **Khóa chính thực tế (PK):** `Incoming Document Entry No.`, `Line No.`.
+- **Trường định danh bất biến:** `SystemId` (GUID).
+- **Trường chứa tệp nhị phân:** `Content` (kiểu `BLOB`). Không liên kết với `Tenant Media`.
+- **Cơ chế dọn dẹp:** Sử dụng codeunit chuẩn `Incoming Document Attachment Mgt.` hoặc xóa BLOB có kiểm soát bằng cách clear trường `Content` và cập nhật các trường cờ trạng thái liên quan.
 
 ### 3.3. Chiến lược Cut-Off Date (Mở để chốt với Nghiệp vụ)
+
 Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà được thiết kế thành cấu hình linh hoạt (Configurable Rule) để thảo luận tiếp với bộ phận Kế toán:
-* **Lựa chọn A (Khuyến nghị cho Tài chính):** So khớp theo ngày hạch toán chứng từ gốc (`Posting Date`). Đảm bảo toàn bộ chứng từ thuộc niên độ kế toán đã đóng sổ mới bị archive.
-* **Lựa chọn B:** So khớp theo ngày chứng từ (`Document Date`).
-* **Lựa chọn C (Fallback kỹ thuật):** So khớp theo ngày đính kèm tệp (`Attached Date` trên Table 1173 hoặc `Created Date-Time` trên Table 133).
+
+- **Lựa chọn A (Khuyến nghị cho Tài chính):** So khớp theo ngày hạch toán chứng từ gốc (`Posting Date`). Đảm bảo toàn bộ chứng từ thuộc niên độ kế toán đã đóng sổ mới bị archive.
+- **Lựa chọn B:** So khớp theo ngày chứng từ (`Document Date`).
+- **Lựa chọn C (Fallback kỹ thuật):** So khớp theo ngày đính kèm tệp (`Attached Date` trên Table 1173 hoặc `Created Date-Time` trên Table 133).
 
 ---
 
 ## 4. BẰNG CHỨNG THỰC NGHIỆM PURGE MEDIA (PROOF-OF-CONCEPT TRÊN SANDBOX)
 
 > [!WARNING]
-> Luận điểm *"Clear field trên Document Attachment thì BC tự giải phóng Tenant Media"* bắt buộc phải được chứng minh bằng thực nghiệm PoC trên Sandbox trước khi viết code triển khai.
+> Luận điểm _"Clear field trên Document Attachment thì BC tự giải phóng Tenant Media"_ bắt buộc phải được chứng minh bằng thực nghiệm PoC trên Sandbox trước khi viết code triển khai.
 
 ### Bộ 6 Kịch bản Thực nghiệm PoC Bắt buộc:
+
 1. **Kịch bản 1: 1 Attachment — 1 Media GUID:** Tạo 1 attachment mới, kiểm tra `Tenant Media` có 1 record. Clear field `Document Reference ID` trên attachment $\rightarrow$ Xác minh xem record trong `Tenant Media` có bị xóa ngay hay chờ background process dọn dẹp.
 2. **Kịch bản 2: Shared Media (Nhiều attachment trỏ vào 1 Media GUID):** Tạo 2 attachment trỏ vào cùng 1 Media GUID. Clear 1 attachment $\rightarrow$ **Xác minh attachment còn lại có bị lỗi không** và `Tenant Media` có bị xóa vội hay không. (Kỳ vọng: Media vẫn còn cho attachment thứ 2).
 3. **Kịch bản 3: Post chứng từ (Copy từ Order sang Invoice):** Tạo Sales Order có attachment $\rightarrow$ Post ra Posted Invoice. Kiểm tra xem Media GUID có bị nhân đôi hay dùng chung. Thực hiện purge trên Invoice và kiểm tra trạng thái trên Order.
 4. **Kịch bản 4: Xóa Binary nhưng giữ Metadata:** Clear `Document Reference ID` hoặc `Content` nhưng giữ nguyên tên file, extension, size trên record $\rightarrow$ Đảm bảo UI chuẩn của BC không bị crash khi người dùng mở trang attachment.
 5. **Kịch bản 5: Khởi động lại Service / Session mới:** Sau khi clear media, restart session và kiểm tra lại trạng thái.
-6. **Kịch bản 6: Đo lường dung lượng thực tế:** Theo dõi trang *Admin Center > Capacity* trước và sau khi purge (chú ý: BC Cloud cập nhật dung lượng có độ trễ từ vài giờ đến 24 giờ).
+6. **Kịch bản 6: Đo lường dung lượng thực tế:** Theo dõi trang _Admin Center > Capacity_ trước và sau khi purge (chú ý: BC Cloud cập nhật dung lượng có độ trễ từ vài giờ đến 24 giờ).
 
 ---
 
 ## 5. KIẾN TRÚC BẢO MẬT & XÁC THỰC MICROSOFT ENTRA / GRAPH API
 
 ### 5.1. Phân quyền Thực tế & Nguyên tắc Đặc quyền Tối thiểu (Sites.Selected)
-* **Không dùng quyền diện rộng:** Tuyệt đối cấm quyền `Files.ReadWrite.All` trên Entra ID.
-* **Mô hình triển khai chuẩn:**
+
+- **Không dùng quyền diện rộng:** Tuyệt đối cấm quyền `Files.ReadWrite.All` trên Entra ID.
+- **Mô hình triển khai chuẩn:**
   1. Phòng IT Doanh nghiệp tạo một **App Registration (Service Principal)** riêng cho tích hợp BC - SharePoint.
   2. Gán quyền Application: **`Sites.Selected`** (Microsoft Graph).
   3. Quản trị viên M365 dùng Graph API hoặc PowerShell để cấp quyền **`write` (contribute)** cho duy nhất App Registration này trên **đúng 1 SharePoint Site Collection** lưu trữ. Mọi hành vi truy cập site khác đều bị từ chối (HTTP 403).
   4. Tuyệt đối không dùng thông tin định danh (User Credentials) của cá nhân developer.
 
 ### 5.2. Quản lý Vòng đời Credentials & Khóa Bí mật
-* **Phương thức xác thực:** Hỗ trợ **Client Certificate (.cer / .pfx)** hoặc **Client Secret**.
-* **Lưu trữ an toàn:**
-  * Nếu dùng Secret: Lưu trữ trong **`IsolatedStorage`** (DataScope::Company) với trường nhập liệu Masked.
-  * Nếu yêu cầu bảo mật cao cấp (Private Key Certificate): Cần có thành phần tích hợp với **Azure Key Vault** hoặc dịch vụ ủy quyền nội bộ của công ty để lấy Bearer Token, tránh việc AL phải tự xử lý giải mã Private Key phức tạp.
-* **Cơ chế thu hồi (Revocation):** Có quy trình rõ ràng trong tài liệu vận hành: Khi nghi ngờ lộ credential, IT chỉ cần xóa Secret hoặc Certificate trên Entra ID là toàn bộ tiến trình upload lập tức dừng lại an toàn.
+
+- **Phương thức xác thực:** Hỗ trợ **Client Certificate (.cer / .pfx)** hoặc **Client Secret**.
+- **Lưu trữ an toàn:**
+  - Nếu dùng Secret: Lưu trữ trong **`IsolatedStorage`** (DataScope::Company) với trường nhập liệu Masked.
+  - Nếu yêu cầu bảo mật cao cấp (Private Key Certificate): Cần có thành phần tích hợp với **Azure Key Vault** hoặc dịch vụ ủy quyền nội bộ của công ty để lấy Bearer Token, tránh việc AL phải tự xử lý giải mã Private Key phức tạp.
+- **Cơ chế thu hồi (Revocation):** Có quy trình rõ ràng trong tài liệu vận hành: Khi nghi ngờ lộ credential, IT chỉ cần xóa Secret hoặc Certificate trên Entra ID là toàn bộ tiến trình upload lập tức dừng lại an toàn.
 
 ---
 
 ## 6. QUY CHUẨN LƯU TRỮ, CẤU TRÚC THƯ MỤC & CHÍNH SÁCH SHAREPOINT
 
 ### 6.1. Cấu trúc Cây Thư mục
+
 Nhằm chống trùng lặp số chứng từ giữa các công ty con (ví dụ APSS-SG và APSS-VN đều có thể có hóa đơn `INV-2023-0001`):
 
 $$\mathbf{\text{[Archive Document Library]}} \;/\; \mathbf{\text{[Company Name]}} \;/\; \mathbf{\text{[Document Type]}} \;/\; \mathbf{\text{[Document No.]}} \;/\; \mathbf{\text{[File Name]}}$$
 
 ### 6.2. Quy tắc Làm sạch Đường dẫn (Sanitization)
-* Loại bỏ toàn bộ ký tự cấm của SharePoint: `~ " # % & * : < > ? / \ { | }` $\rightarrow$ Thay thế bằng dấu gạch dưới `_`.
-* Xóa khoảng trắng và dấu chấm `.` ở đầu hoặc cuối tên thư mục và tên file.
-* Chống tấn công Path Traversal: Loại bỏ triệt để chuỗi `../` hoặc `..\` trong `Document No.`.
-* Kiểm soát độ dài: Tổng độ dài URL trên SharePoint $\le 400$ ký tự.
+
+- Loại bỏ toàn bộ ký tự cấm của SharePoint: `~ " # % & * : < > ? / \ { | }` $\rightarrow$ Thay thế bằng dấu gạch dưới `_`.
+- Xóa khoảng trắng và dấu chấm `.` ở đầu hoặc cuối tên thư mục và tên file.
+- Chống tấn công Path Traversal: Loại bỏ triệt để chuỗi `../` hoặc `..\` trong `Document No.`.
+- Kiểm soát độ dài: Tổng độ dài URL trên SharePoint $\le 400$ ký tự.
 
 ### 6.3. Chính sách Thư viện SharePoint (Retention & Permissions)
-* **Phân quyền End-User:** Người dùng thông thường trong công ty chỉ có quyền **Read-Only** trên thư viện lưu trữ. Không có quyền sửa hoặc xóa file.
-* **Phân quyền Service Principal (BC Bot):** Chỉ có quyền tạo thư mục, upload file và đọc metadata. **Không cấp quyền Delete file** cho Service Principal để triệt tiêu rủi ro bug code xóa nhầm file trên SharePoint.
-* **Retention Policy:** Bật tính năng Versioning và cấu hình Retention Policy hợp lý trên SharePoint để chống xóa nhầm mà không gây xung đột với nghiệp vụ lưu trữ.
+
+- **Phân quyền End-User:** Người dùng thông thường trong công ty chỉ có quyền **Read-Only** trên thư viện lưu trữ. Không có quyền sửa hoặc xóa file.
+- **Phân quyền Service Principal (BC Bot):** Chỉ có quyền tạo thư mục, upload file và đọc metadata. **Không cấp quyền Delete file** cho Service Principal để triệt tiêu rủi ro bug code xóa nhầm file trên SharePoint.
+- **Retention Policy:** Bật tính năng Versioning và cấu hình Retention Policy hợp lý trên SharePoint để chống xóa nhầm mà không gây xung đột với nghiệp vụ lưu trữ.
 
 ---
 
@@ -223,6 +241,7 @@ erDiagram
 ```
 
 ### 7.1. Bảng 1: `Archive Setup` (Table 50100)
+
 ```al
 namespace APSS.FileArchiving;
 
@@ -309,6 +328,7 @@ table 50100 "Archive Setup"
 ```
 
 ### 7.2. Bảng 2: `Archive Queue Entry` (Table 50101)
+
 ```al
 namespace APSS.FileArchiving;
 
@@ -476,6 +496,7 @@ table 50101 "Archive Queue Entry"
 ```
 
 ### 7.3. Bảng 3: `Archive Audit Log` (Table 50102)
+
 ```al
 namespace APSS.FileArchiving;
 
@@ -545,6 +566,7 @@ table 50102 "Archive Audit Log"
 ```
 
 ### 7.4. Bảng 4: `Archive Link Mapping` (Table 50103)
+
 ```al
 namespace APSS.FileArchiving;
 
@@ -608,24 +630,25 @@ table 50103 "Archive Link Mapping"
 ```
 
 ### 7.5. Các Enum Trạng thái
-* **`Archive Process Status` (Enum 50100):**
-  * `Draft / Preview` (Chỉ xem trước Dry-run)
-  * `Pending Upload` (Đã đưa vào hàng đợi)
-  * `Uploading` (Đang upload chunk session)
-  * `Uploaded` (Upload xong, chờ verify)
-  * `Verified` (Đã verify size/hash thành công 100%)
-  * `Failed` (Lỗi upload hoặc lỗi verify)
-  * `Skipped / Orphan` (Bỏ qua do không có source document hoặc orphan)
-* **`Purge Process Status` (Enum 50101):**
-  * `Not Eligible` (Chưa đủ điều kiện)
-  * `Pending Approval` (Chờ người có thẩm quyền duyệt)
-  * `Approved` (Đã duyệt, sẵn sàng dọn dẹp)
-  * `Rejected` (Bị từ chối duyệt)
-  * `Expired` (Hết hạn duyệt, cần re-verify)
-  * `Purged` (Đã giải phóng an toàn trong BC)
-  * `Purge Failed` (Lỗi trong quá trình clear binary)
-* **`Archive Audit Action` (Enum 50102):**
-  * `DryRun`, `Queued`, `UploadStarted`, `UploadSucceeded`, `VerifySucceeded`, `VerifyFailed`, `PurgeRequested`, `PurgeApproved`, `PurgeRejected`, `PurgeCompleted`.
+
+- **`Archive Process Status` (Enum 50100):**
+  - `Draft / Preview` (Chỉ xem trước Dry-run)
+  - `Pending Upload` (Đã đưa vào hàng đợi)
+  - `Uploading` (Đang upload chunk session)
+  - `Uploaded` (Upload xong, chờ verify)
+  - `Verified` (Đã verify size/hash thành công 100%)
+  - `Failed` (Lỗi upload hoặc lỗi verify)
+  - `Skipped / Orphan` (Bỏ qua do không có source document hoặc orphan)
+- **`Purge Process Status` (Enum 50101):**
+  - `Not Eligible` (Chưa đủ điều kiện)
+  - `Pending Approval` (Chờ người có thẩm quyền duyệt)
+  - `Approved` (Đã duyệt, sẵn sàng dọn dẹp)
+  - `Rejected` (Bị từ chối duyệt)
+  - `Expired` (Hết hạn duyệt, cần re-verify)
+  - `Purged` (Đã giải phóng an toàn trong BC)
+  - `Purge Failed` (Lỗi trong quá trình clear binary)
+- **`Archive Audit Action` (Enum 50102):**
+  - `DryRun`, `Queued`, `UploadStarted`, `UploadSucceeded`, `VerifySucceeded`, `VerifyFailed`, `PurgeRequested`, `PurgeApproved`, `PurgeRejected`, `PurgeCompleted`.
 
 ---
 
@@ -634,14 +657,16 @@ table 50103 "Archive Link Mapping"
 Để đảm bảo người dùng vẫn mở được file từ màn hình nghiệp vụ (Item Card, Sales Order, Posted Sales Invoice, Incoming Documents):
 
 ### 8.1. Mở rộng Trang chuẩn `Document Attachment Details` (Page 1173)
-* Sử dụng `pageextension` mở rộng trang `Document Attachment Details`:
-  1. Thêm trường hiển thị trạng thái: **`Archive Status`** (hiển thị rõ: *Stored in BC* hoặc *Archived to SharePoint*).
+
+- Sử dụng `pageextension` mở rộng trang `Document Attachment Details`:
+  1. Thêm trường hiển thị trạng thái: **`Archive Status`** (hiển thị rõ: _Stored in BC_ hoặc _Archived to SharePoint_).
   2. Bổ sung Action nổi bật trên thanh công cụ: **`Open from SharePoint`** (Chỉ kích hoạt khi file đã có link SharePoint). Khi người dùng click, BC sẽ gọi `Hyperlink(ArchiveLinkMapping."SharePoint Web URL")` để mở file trực tiếp trên trình duyệt.
-  3. Khi binary content đã bị purge: Nếu người dùng click vào chức năng xem file chuẩn của BC, hệ thống sẽ hiển thị thông báo hướng dẫn: *"Tệp này đã được lưu trữ an toàn trên SharePoint. Hệ thống đang mở tệp qua liên kết SharePoint..."* và tự động mở Web URL.
+  3. Khi binary content đã bị purge: Nếu người dùng click vào chức năng xem file chuẩn của BC, hệ thống sẽ hiển thị thông báo hướng dẫn: _"Tệp này đã được lưu trữ an toàn trên SharePoint. Hệ thống đang mở tệp qua liên kết SharePoint..."_ và tự động mở Web URL.
 
 ### 8.2. Mở rộng `Incoming Documents` (Page 132 / Page 133)
-* Bổ sung Factbox hiển thị link SharePoint trực tiếp trên màn hình xem chứng từ đầu vào, cho phép kế toán click mở hóa đơn gốc được lưu trên SharePoint chỉ với 1 click.
-* Hỗ trợ đầy đủ trường hợp một chứng từ có nhiều tệp đính kèm (`Multiple Attachments`).
+
+- Bổ sung Factbox hiển thị link SharePoint trực tiếp trên màn hình xem chứng từ đầu vào, cho phép kế toán click mở hóa đơn gốc được lưu trên SharePoint chỉ với 1 click.
+- Hỗ trợ đầy đủ trường hợp một chứng từ có nhiều tệp đính kèm (`Multiple Attachments`).
 
 ---
 
@@ -665,7 +690,7 @@ sequenceDiagram
     UI->>Queue: Quét dữ liệu (T1173, T133) -> Sinh Queue (Status: Draft)
     UI-->>User: Hiển thị danh sách Preview, số lượng file, dung lượng dự kiến
     User->>UI: Xác nhận đưa vào Hàng đợi (Status -> Pending Upload)
-    
+
     Note over JQ, SP: Job Queue chạy nền ngoài giờ làm việc
     loop Xử lý từng mẻ (Batch Size: 50 file)
         JQ->>Queue: Lấy danh sách Pending Upload
@@ -688,7 +713,7 @@ sequenceDiagram
     Note over Approver, SP: PHA 2: PHÊ DUYỆT CẤP 2 & SAFE PURGE CÓ KIỂM SOÁT
     Approver->>UI: Mở màn hình xét duyệt các lô đã Verified
     Approver->>UI: Bấm "Phê duyệt Purge" (Purge Status -> Approved)
-    
+
     loop Job Queue Purge chạy nền
         JQ->>Graph: RE-VERIFY: Kiểm tra file trên SharePoint vẫn tồn tại và nguyên vẹn
         Graph-->>JQ: File tồn tại, ETag/Size hợp lệ
@@ -703,27 +728,32 @@ sequenceDiagram
 ## 10. CƠ CHẾ CHỐNG LỖI, THROTTLING & KHỬ TRÙNG LẶP (RESILIENCE & IDEMPOTENCY)
 
 ### 10.1. Khóa Định danh Khử Trùng lặp (Deterministic Archive Key)
+
 Để đảm bảo tính Idempotent tuyệt đối (chạy lại bao nhiêu lần cũng không tạo file trùng lặp):
-* Mỗi bản ghi hàng đợi được cấp một **`Deterministic Archive Key`**:
+
+- Mỗi bản ghi hàng đợi được cấp một **`Deterministic Archive Key`**:
   $$\text{Key} = \text{SHA256}(\text{Company Name} + \text{Source Table ID} + \text{Attachment SystemId} + \text{Original File Size})$$
-* **Nguyên tắc Re-run:** Trước khi upload bất kỳ file nào, BC luôn gửi request HEAD/GET lên SharePoint tại đường dẫn chỉ định:
-  * Nếu file đã tồn tại và có kích thước khớp 100%: Thu hồi Item ID và Web URL, đánh dấu `Verified` mà không upload đè. Chặn hoàn toàn việc SharePoint tự sinh `File (1).pdf`.
+- **Nguyên tắc Re-run:** Trước khi upload bất kỳ file nào, BC luôn gửi request HEAD/GET lên SharePoint tại đường dẫn chỉ định:
+  - Nếu file đã tồn tại và có kích thước khớp 100%: Thu hồi Item ID và Web URL, đánh dấu `Verified` mà không upload đè. Chặn hoàn toàn việc SharePoint tự sinh `File (1).pdf`.
 
 ### 10.2. Hợp đồng Đối soát (Verification Contract)
-* **Kích thước file (File Size):** Bắt buộc đối chiếu khớp chính xác đến từng byte (`Original File Size == SharePoint Drive Item Size`).
-* **Tính toàn vẹn (Checksum / Hash):**
-  * Microsoft Graph trả về trường `quickXorHash` (thuật toán băm riêng của Microsoft).
-  * AL có thể tính SHA-256 thông qua Codeunit `Cryptography Management`. Do thuật toán băm khác nhau, nếu Graph không cung cấp SHA-256 thì **Kích thước file byte-exact + SharePoint Drive Item ID + ETag** được sử dụng làm bằng chứng nghiệm thu chính thức.
-* **ETag:** Được ghi nhận như một định danh phiên bản (version identifier) phục vụ bước re-verify trước khi purge.
+
+- **Kích thước file (File Size):** Bắt buộc đối chiếu khớp chính xác đến từng byte (`Original File Size == SharePoint Drive Item Size`).
+- **Tính toàn vẹn (Checksum / Hash):**
+  - Microsoft Graph trả về trường `quickXorHash` (thuật toán băm riêng của Microsoft).
+  - AL có thể tính SHA-256 thông qua Codeunit `Cryptography Management`. Do thuật toán băm khác nhau, nếu Graph không cung cấp SHA-256 thì **Kích thước file byte-exact + SharePoint Drive Item ID + ETag** được sử dụng làm bằng chứng nghiệm thu chính thức.
+- **ETag:** Được ghi nhận như một định danh phiên bản (version identifier) phục vụ bước re-verify trước khi purge.
 
 ### 10.3. Xử lý Giới hạn Băng thông (Graph Throttling - HTTP 429 & 503)
-* Bắt mã `HTTP 429 (Too Many Requests)` và `HTTP 503 (Service Unavailable)`.
-* Đọc header `Retry-After`. Tự động áp dụng cơ chế **Exponential Backoff**: Tạm dừng mẻ xử lý, lùi lại $10\text{s}, 20\text{s}, 40\text{s}$, không spam request làm khóa tenant.
+
+- Bắt mã `HTTP 429 (Too Many Requests)` và `HTTP 503 (Service Unavailable)`.
+- Đọc header `Retry-After`. Tự động áp dụng cơ chế **Exponential Backoff**: Tạm dừng mẻ xử lý, lùi lại $10\text{s}, 20\text{s}, 40\text{s}$, không spam request làm khóa tenant.
 
 ### 10.4. Kiểm soát Phê duyệt Purge Chống Chạy Nhầm
-* **Phân quyền vai trò:** Chỉ người dùng có Role ID được định nghĩa trong `Archive Setup` (ví dụ `SP-ARCHIVE-ADMIN`) mới có quyền bấm phê duyệt.
-* **Thời hạn phê duyệt (Expiry):** Lô phê duyệt chỉ có hiệu lực trong vòng $N$ ngày (cấu hình trong Setup). Quá hạn, trạng thái chuyển về `Expired` và bắt buộc phải re-verify trước khi duyệt lại.
-* **Chặn Purge nếu file bị sửa/xóa:** Trước khi purge, nếu bước re-verify phát hiện file trên SharePoint đã bị ai đó xóa hoặc sửa (ETag thay đổi), hệ thống lập tức hủy lệnh purge và gắn cờ cảnh báo lỗi.
+
+- **Phân quyền vai trò:** Chỉ người dùng có Role ID được định nghĩa trong `Archive Setup` (ví dụ `SP-ARCHIVE-ADMIN`) mới có quyền bấm phê duyệt.
+- **Thời hạn phê duyệt (Expiry):** Lô phê duyệt chỉ có hiệu lực trong vòng $N$ ngày (cấu hình trong Setup). Quá hạn, trạng thái chuyển về `Expired` và bắt buộc phải re-verify trước khi duyệt lại.
+- **Chặn Purge nếu file bị sửa/xóa:** Trước khi purge, nếu bước re-verify phát hiện file trên SharePoint đã bị ai đó xóa hoặc sửa (ETag thay đổi), hệ thống lập tức hủy lệnh purge và gắn cờ cảnh báo lỗi.
 
 ---
 
@@ -731,35 +761,36 @@ sequenceDiagram
 
 Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường **Sandbox tạo từ bản sao của Production**:
 
-| Nhóm kiểm thử | Mã TC | Kịch bản kiểm thử | Kết quả kỳ vọng (Pass Criteria) |
-| :--- | :---: | :--- | :--- |
-| **Cơ bản** | **TC-01** | Chế độ Preview / Dry-Run | Hiển thị danh sách, số lượng, dung lượng dự kiến. **Không upload, không xóa bất kỳ dữ liệu nào.** |
-| | **TC-02** | Upload file nhỏ thông thường ($\le 4\text{ MB}$) | Upload thành công vào đúng folder `Company/Type/No/`. Verify size khớp từng byte. |
-| | **TC-03** | Resumable Chunked Upload ($> 4\text{ MB}$) | File 45 MB upload trơn tru qua từng chunk 4 MB. |
-| | **TC-04** | Sanitize ký tự cấm và URL dài | Ký tự `~#%&*{}`, `/` được đổi thành `_`. URL hợp lệ $\le 400$ ký tự. |
-| | **TC-05** | Mở link từ giao diện BC | Người dùng click `Open from SharePoint` trên Page 1173 mở được file trên browser. |
-| **Toàn vẹn Dữ liệu** | **TC-06** | **Shared Media giữa nhiều chứng từ** | File đính kèm ở Order và Invoice dùng chung 1 Media GUID. Purge ở Invoice **không làm hỏng** file ở Order. |
-| | **TC-07** | **2 Company trùng Document No.** | Cả 2 công ty đều có hóa đơn `INV-001`. File được tách biệt hoàn toàn theo 2 folder Company trên SharePoint. |
-| | **TC-08** | **2 file cùng tên khác nội dung trong 1 chứng từ** | File thứ 2 tự động thêm hậu tố `_[LineNo]`, cả 2 file đều lưu trữ độc lập. |
-| | **TC-09** | **Attachment không có source document (Orphan)** | Hệ thống phát hiện `Source Record Exists = False`, đánh dấu `Skipped / Orphan`, không upload sai lệch. |
-| | **TC-10** | **Source document bị xóa/archive trong lúc scan** | Bắt ngoại lệ an toàn, ghi log cảnh báo, không làm crash Job Queue. |
-| | **TC-11** | **Attachment bị thay đổi nội dung trong lúc scan** | Checksum thay đổi $\rightarrow$ Hệ thống hủy mẻ xử lý của file đó, yêu cầu scan lại. |
-| **Sự cố Mạng & Graph** | **TC-12** | **Upload thành công nhưng BC rollback transaction** | Lần chạy kế tiếp kiểm tra SharePoint trước, nhận diện file đã có, không tạo file `(1).pdf`. |
-| | **TC-13** | **BC gửi lệnh nhưng SharePoint timeout** | Đánh dấu lỗi, tăng `Retry Count`, tự động retry ở lượt Job Queue sau. |
-| | **TC-14** | **Token Entra ID hết hạn giữa phiên upload chunk** | Tự động refresh Bearer Token mới và upload tiếp chunk còn dở dang. |
-| | **TC-15** | **Graph trả về lỗi Throttling HTTP 429/503 liên tục** | Bắt mã lỗi, đọc `Retry-After`, lùi tiến trình an toàn, không làm nghẽn Job Queue. |
-| | **TC-16** | **Tệp vượt giới hạn kích thước cho phép** | Cảnh báo lỗi dung lượng vượt ngưỡng cấu hình, ghi log kiểm toán, bỏ qua file an toàn. |
-| **Bảo mật & Phê duyệt** | **TC-17** | **Người dùng không có quyền mở link SharePoint** | SharePoint chặn quyền (Access Denied) theo đúng phân quyền nội bộ của M365. |
-| | **TC-18** | **Cố tình purge khi chưa có Approved** | Lệnh purge bị chặn đứng ở mức tầng nghiệp vụ. |
-| | **TC-19** | **Phê duyệt quá hạn (Approval Expiry)** | Lô duyệt quá 7 ngày bị chuyển sang `Expired`, bắt buộc re-verify trước khi duyệt lại. |
-| | **TC-20** | **File trên SharePoint bị xóa trước khi purge** | Bước Re-verify phát hiện file mất tích $\rightarrow$ Hủy lệnh purge, bảo vệ file gốc trong BC. |
-| | **TC-21** | **Purge bị kích hoạt đồng thời (Race Condition)** | Cơ chế khóa bản ghi ngăn chặn việc 2 session cùng gọi lệnh purge trên 1 queue entry. |
-| **Hệ thống & Vận hành** | **TC-22** | **Job Queue bị restart đột ngột giữa chừng** | Khởi động lại Job Queue: Các queue entry đang dở dang tự động resume từ điểm ngắt. |
-| | **TC-23** | **Đo lường dung lượng sau khi purge** | Xác minh dung lượng Tenant Media và Incoming Document giảm thực tế trên Admin Center (sau chu kỳ cập nhật dung lượng của Microsoft). |
+| Nhóm kiểm thử           |   Mã TC   | Kịch bản kiểm thử                                     | Kết quả kỳ vọng (Pass Criteria)                                                                                                      |
+| :---------------------- | :-------: | :---------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------- |
+| **Cơ bản**              | **TC-01** | Chế độ Preview / Dry-Run                              | Hiển thị danh sách, số lượng, dung lượng dự kiến. **Không upload, không xóa bất kỳ dữ liệu nào.**                                    |
+|                         | **TC-02** | Upload file nhỏ thông thường ($\le 4\text{ MB}$)      | Upload thành công vào đúng folder `Company/Type/No/`. Verify size khớp từng byte.                                                    |
+|                         | **TC-03** | Resumable Chunked Upload ($> 4\text{ MB}$)            | File 45 MB upload trơn tru qua từng chunk 4 MB.                                                                                      |
+|                         | **TC-04** | Sanitize ký tự cấm và URL dài                         | Ký tự `~#%&*{}`, `/` được đổi thành `_`. URL hợp lệ $\le 400$ ký tự.                                                                 |
+|                         | **TC-05** | Mở link từ giao diện BC                               | Người dùng click `Open from SharePoint` trên Page 1173 mở được file trên browser.                                                    |
+| **Toàn vẹn Dữ liệu**    | **TC-06** | **Shared Media giữa nhiều chứng từ**                  | File đính kèm ở Order và Invoice dùng chung 1 Media GUID. Purge ở Invoice **không làm hỏng** file ở Order.                           |
+|                         | **TC-07** | **2 Company trùng Document No.**                      | Cả 2 công ty đều có hóa đơn `INV-001`. File được tách biệt hoàn toàn theo 2 folder Company trên SharePoint.                          |
+|                         | **TC-08** | **2 file cùng tên khác nội dung trong 1 chứng từ**    | File thứ 2 tự động thêm hậu tố `_[LineNo]`, cả 2 file đều lưu trữ độc lập.                                                           |
+|                         | **TC-09** | **Attachment không có source document (Orphan)**      | Hệ thống phát hiện `Source Record Exists = False`, đánh dấu `Skipped / Orphan`, không upload sai lệch.                               |
+|                         | **TC-10** | **Source document bị xóa/archive trong lúc scan**     | Bắt ngoại lệ an toàn, ghi log cảnh báo, không làm crash Job Queue.                                                                   |
+|                         | **TC-11** | **Attachment bị thay đổi nội dung trong lúc scan**    | Checksum thay đổi $\rightarrow$ Hệ thống hủy mẻ xử lý của file đó, yêu cầu scan lại.                                                 |
+| **Sự cố Mạng & Graph**  | **TC-12** | **Upload thành công nhưng BC rollback transaction**   | Lần chạy kế tiếp kiểm tra SharePoint trước, nhận diện file đã có, không tạo file `(1).pdf`.                                          |
+|                         | **TC-13** | **BC gửi lệnh nhưng SharePoint timeout**              | Đánh dấu lỗi, tăng `Retry Count`, tự động retry ở lượt Job Queue sau.                                                                |
+|                         | **TC-14** | **Token Entra ID hết hạn giữa phiên upload chunk**    | Tự động refresh Bearer Token mới và upload tiếp chunk còn dở dang.                                                                   |
+|                         | **TC-15** | **Graph trả về lỗi Throttling HTTP 429/503 liên tục** | Bắt mã lỗi, đọc `Retry-After`, lùi tiến trình an toàn, không làm nghẽn Job Queue.                                                    |
+|                         | **TC-16** | **Tệp vượt giới hạn kích thước cho phép**             | Cảnh báo lỗi dung lượng vượt ngưỡng cấu hình, ghi log kiểm toán, bỏ qua file an toàn.                                                |
+| **Bảo mật & Phê duyệt** | **TC-17** | **Người dùng không có quyền mở link SharePoint**      | SharePoint chặn quyền (Access Denied) theo đúng phân quyền nội bộ của M365.                                                          |
+|                         | **TC-18** | **Cố tình purge khi chưa có Approved**                | Lệnh purge bị chặn đứng ở mức tầng nghiệp vụ.                                                                                        |
+|                         | **TC-19** | **Phê duyệt quá hạn (Approval Expiry)**               | Lô duyệt quá 7 ngày bị chuyển sang `Expired`, bắt buộc re-verify trước khi duyệt lại.                                                |
+|                         | **TC-20** | **File trên SharePoint bị xóa trước khi purge**       | Bước Re-verify phát hiện file mất tích $\rightarrow$ Hủy lệnh purge, bảo vệ file gốc trong BC.                                       |
+|                         | **TC-21** | **Purge bị kích hoạt đồng thời (Race Condition)**     | Cơ chế khóa bản ghi ngăn chặn việc 2 session cùng gọi lệnh purge trên 1 queue entry.                                                 |
+| **Hệ thống & Vận hành** | **TC-22** | **Job Queue bị restart đột ngột giữa chừng**          | Khởi động lại Job Queue: Các queue entry đang dở dang tự động resume từ điểm ngắt.                                                   |
+|                         | **TC-23** | **Đo lường dung lượng sau khi purge**                 | Xác minh dung lượng Tenant Media và Incoming Document giảm thực tế trên Admin Center (sau chu kỳ cập nhật dung lượng của Microsoft). |
 
 ---
 
 ## 12. KẾT LUẬN & TRẠNG THÁI HIỆN TẠI
-* Bản đặc tả kỹ thuật v1.1 này đã giải quyết triệt để toàn bộ 14 điểm phản biện của Tech Lead.
-* **Tiến độ mã nguồn:** Đang giữ nguyên trạng thái **chưa viết code** theo đúng chỉ đạo.
-* **Bước đi tiếp theo:** Trình bản cập nhật này cho Tech Lead phê duyệt. Sau khi Lead đồng thuận với kiến trúc và bộ Test Cases mở rộng, chúng ta sẽ bắt đầu bước đầu tiên: **Triển khai PoC kiểm nghiệm dọn dẹp Tenant Media trên Sandbox**.
+
+- Bản đặc tả kỹ thuật v1.1 này đã giải quyết triệt để toàn bộ 14 điểm phản biện của Tech Lead.
+- **Tiến độ mã nguồn:** Đang giữ nguyên trạng thái **chưa viết code** theo đúng chỉ đạo.
+- **Bước đi tiếp theo:** Trình bản cập nhật này cho Tech Lead phê duyệt. Sau khi Lead đồng thuận với kiến trúc và bộ Test Cases mở rộng, chúng ta sẽ bắt đầu bước đầu tiên: **Triển khai PoC kiểm nghiệm dọn dẹp Tenant Media trên Sandbox**.
