@@ -2,7 +2,7 @@
 
 ## Dự án: Business Central File Archiving to SharePoint
 
-**Phiên bản:** 1.4 | **Trạng thái:** Chờ phê duyệt (Discovery & Technical Design - Đã hoàn thành 100% Khảo sát Thực tế Test 1 đến Test 4 & Chốt Schema v28)  
+**Phiên bản:** 1.5 | **Trạng thái:** Đã phê duyệt kiến trúc - Tiến hành Phase 1: Preview, Queue, Upload, Verify & SharePoint Link (Purge tiếp tục Khóa cứng)  
 **Phạm vi:** Dynamics 365 Business Central Cloud SaaS (v28) & Microsoft SharePoint Online
 
 ---
@@ -830,11 +830,25 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
 
 ## 12. KẾT LUẬN & CHỐT CHẶN TRIỂN KHAI (PURGE HARD-LOCK GATEKEEPER)
 
-- **Trạng thái tính năng hiện tại:** Extension được quy định triển khai ở trạng thái **Khóa cứng tính năng Purge (Hard-Lock)**. Hệ thống chỉ cho phép vận hành: **Preview / Dry Run**, **Upload to SharePoint**, **Verify đối soát kép** và **Lưu trữ Link hiển thị trên BC**.
-- **Điều kiện mở khóa Purge trên Production:** Tính năng Purge tuyệt đối không được kích hoạt trên Production cho đến khi đáp ứng đầy đủ **5 điều kiện tiên quyết**:
-  1. *Phương thức Purge chuẩn xác:* **ĐÃ ĐẠT & XÁC MINH THỰC TẾ (TEST 4).** Khảo sát mã nguồn Base App v28 xác nhận dùng `Clear("Document Reference ID")` và `Modify(false)` trên Table 1173 và `Clear(Content)` trên Table 133; tuyệt đối không gọi `.Delete()`.
-  2. *Biên bản nghiệm thu PoC Sandbox:* **ĐÃ ĐẠT & XÁC MINH THỰC TẾ (TEST 3).** Xác thực mã nguồn Codeunit 80 (`Sales-Post`) dùng `TransferFields` chia sẻ con trỏ Media giữa Order và Invoice mà không nhân đôi dữ liệu trong `Tenant Media`. Cấu trúc Table 1173 (hơn 28,198 records) đã được kiểm chứng trực tiếp trên tenant APSS.
-  3. *Khóa chính đa pháp nhân:* **ĐÃ ĐẠT & XÁC MINH THỰC TẾ (TEST 2).** Kiểm thử trên Sales Order `APSS-SO-2404-054` xác nhận dữ liệu phân vùng độc lập (`DataPerCompany = true`). Bảng `Archive Link Mapping` đã chuẩn hóa khóa chính `("Company Name", "Attachment SystemId")` và quy tắc bắt buộc gọi `ChangeCompany()`.
-  4. *Kiến trúc Token / Credentials:* **ĐÃ CHỐT PHƯƠNG ÁN.** Thống nhất Mô hình 1: OAuth2 Client Credentials Grant Flow với Client Secret lưu trong `IsolatedStorage` (Masked), chuẩn native M365 cho AL Cloud.
-  5. *Xác minh dải ID 50140..50189:* **ĐÃ ĐẠT & XÁC MINH THỰC TẾ (TEST 1).** Đã kiểm tra qua `Page 9100` xác nhận từ ID `50137` trở đi hoàn toàn trống; đã chốt dải ID `50140 .. 50189` trong `app.json`.
-- **Chuyển bước dự án:** Toàn bộ 5 chốt chặn tiền triển khai đã được xác minh thực tế 100%. Dự án đã sẵn sàng bước vào giai đoạn **khởi tạo Data Model & Giao diện Setup/Queue** (Tables 50140..50143, Enums 50140..50142, Pages 50140..50141) với chức năng Purge vẫn được khóa cứng an toàn theo đúng quy chuẩn.
+### 12.1. Kết luận Thẩm định Kiến trúc
+- **Kết quả nghiệm thu PoC:** Đã xác nhận đầy đủ tính đúng đắn của hướng kiến trúc:
+  1. Dải Object ID `50140 .. 50189` sạch 100%, không bị xung đột.
+  2. Phân vùng dữ liệu đa pháp nhân `DataPerCompany = true` yêu cầu bắt buộc composite key `("Company Name", "Attachment SystemId")` và lệnh `DocAttachment.ChangeCompany()`.
+  3. Cơ chế Shared Media được xác thực qua hợp đồng `TransferFields` của Base App v28 khi Post chứng từ.
+  4. Phương thức xóa con trỏ `Clear("Document Reference ID")` và `Modify(false)` đảm bảo bảo toàn 100% dòng metadata trên giao diện người dùng.
+- **Phạm vi Chính thức Được Phê duyệt Triển khai (Giai đoạn 1 - MVP):**
+  - Hệ thống tập trung xây dựng và kiểm thử hoàn chỉnh 5 tính năng cốt lõi:
+    1. **Preview / Dry-Run Scanner:** Quét và thống kê file/dung lượng dự kiến theo điều kiện lọc.
+    2. **Archive Queue Management:** Quản lý hàng đợi tập trung, lưu vết trạng thái và lỗi.
+    3. **Resumable Upload to SharePoint:** Tích hợp Microsoft Graph API upload file an toàn.
+    4. **Two-Way Verification:** Đối soát khớp 100% kích thước byte và Drive Item ID/ETag.
+    5. **SharePoint Link Access:** Tích hợp Action `Open from SharePoint` trên Page 1173 và Factbox Page 132/133.
+
+### 12.2. Chốt chặn An toàn: Duy trì Khóa cứng Tính năng Purge (Hard-Lock Purge Gatekeeper)
+> [!CAUTION]
+> **PURGE TIẾP TỤC BỊ KHÓA CỨNG:** Việc lệnh `Clear(Media)` giữ được metadata trên giao diện chưa đồng nghĩa với việc dung lượng lưu trữ trên cơ sở dữ liệu đã được giải phóng vật lý ngay lập tức. Tính năng Purge tuyệt đối KHÔNG được mở trên Production cho đến khi vượt qua đầy đủ 4 chốt chặn bổ sung:
+>
+> 1. **Đo lường Thực tế Giải phóng Dung lượng Vật lý (Physical Storage Measurement):** Cần theo dõi và đo lường sự sụt giảm dung lượng thực tế của bảng `Tenant Media` trên trang *Admin Center > Capacity* sau khi chạy dọn dẹp thử nghiệm trên Sandbox (chờ chu kỳ dọn rác và độ trễ cập nhật số liệu của Microsoft).
+> 2. **Chốt Quy tắc Nghiệp vụ Cut-Off Date:** Thống nhất chính thức bằng văn bản với bộ phận Kế toán / Nghiệp vụ về quy tắc so khớp (chốt ưu tiên `Posting Date` hay `Document Date`).
+> 3. **Phê duyệt Bảo mật & Kiểm tra Thực tế Hạ tầng IT:** Cấu hình và kiểm thử thực tế quyền `Sites.Selected` của App Registration trên đúng Site Collection SharePoint chỉ định cùng Client Secret lưu an toàn trong `IsolatedStorage`.
+> 4. **Kiểm thử Mở rộng & Tải Đồng thời (Stress Test):** Thực hiện thêm các kịch bản kiểm thử với nhiều shared reference phức tạp và nhiều Job Queue chạy đồng thời (concurrent jobs) để đảm bảo không xảy ra race condition hay dead-lock.
