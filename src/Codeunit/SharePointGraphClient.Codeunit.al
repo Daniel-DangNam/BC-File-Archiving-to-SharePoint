@@ -5,7 +5,7 @@ using Microsoft.Foundation.Attachment;
 using System.Environment;
 using System.Utilities;
 
-codeunit 50141 "SharePoint Graph Client"
+codeunit 50141 "SP Archive Graph Client"
 {
     var
         CachedAccessToken: SecretText;
@@ -13,14 +13,14 @@ codeunit 50141 "SharePoint Graph Client"
         SecretKeyLbl: Label 'SP_ARCHIVE_CLIENT_SECRET', Locked = true;
         GraphScopeLbl: Label 'https://graph.microsoft.com/.default', Locked = true;
         TokenEndpointLbl: Label 'https://login.microsoftonline.com/%1/oauth2/v2.0/token', Locked = true, Comment = '%1 = Tenant ID';
+        TokenRequestBodyLbl: Label 'client_id=%1&scope=%2&client_secret=%3&grant_type=client_credentials', Locked = true;
         DriveInfoUrlLbl: Label 'https://graph.microsoft.com/v1.0/drives/%1', Locked = true, Comment = '%1 = Drive ID';
         SimpleUploadUrlLbl: Label 'https://graph.microsoft.com/v1.0/drives/%1/root:/%2:/content', Locked = true, Comment = '%1 = Drive ID, %2 = File Path';
         CreateSessionUrlLbl: Label 'https://graph.microsoft.com/v1.0/drives/%1/root:/%2:/createUploadSession', Locked = true, Comment = '%1 = Drive ID, %2 = File Path';
+        ContentRangeLbl: Label 'bytes %1-%2/%3', Locked = true;
         TokenFailedErr: Label 'Failed to obtain access token from Microsoft Entra ID. HTTP Status: %1, Error: %2', Comment = '%1 = Status Code, %2 = Error details';
         SetupNotConfiguredErr: Label 'SharePoint Archive Setup is not configured. Please fill in Tenant ID, Client ID, Secret, and Drive ID.';
         SizeMismatchErr: Label 'Size verification mismatch! Local size: %1 bytes, SharePoint size: %2 bytes.', Comment = '%1 = Local size, %2 = SharePoint size';
-        ChunkUploadFailedErr: Label 'Chunk upload failed at byte range %1-%2. HTTP Status: %3, Response: %4', Comment = '%1 = Start byte, %2 = End byte, %3 = Status, %4 = Details';
-        UploadSuccessMsg: Label 'File uploaded and verified successfully to SharePoint. Item ID: %1', Comment = '%1 = Drive Item ID';
         AuditUploadStartedMsg: Label 'Upload started for file %1 (Size: %2 bytes).', Comment = '%1 = File name, %2 = File size';
         AuditVerifySuccessMsg: Label 'Upload and verification succeeded. Web URL: %1', Comment = '%1 = SharePoint URL';
         AuditVerifyProofTxt: Label 'Item ID: %1, Size: %2, ETag: %3', Comment = '%1 = Item ID, %2 = Size, %3 = ETag';
@@ -230,23 +230,23 @@ codeunit 50141 "SharePoint Graph Client"
         var OutETag: Text[150];
         var OutSize: BigInteger): Boolean
     var
+        MemoryStream: Codeunit "Temp Blob";
         Client: HttpClient;
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
         Headers: HttpHeaders;
         Content: HttpContent;
+        ChunkInStream: InStream;
+        ChunkOutStream: OutStream;
+        AccessToken: SecretText;
         SessionUrl: Text;
         UploadUrl: Text;
         ResponseText: Text;
-        AccessToken: SecretText;
         ChunkSizeBytes: Integer;
+        CurrentChunkSize: Integer;
         BytesRemaining: BigInteger;
         StartByte: BigInteger;
         EndByte: BigInteger;
-        CurrentChunkSize: Integer;
-        MemoryStream: Codeunit "Temp Blob";
-        ChunkOutStream: OutStream;
-        ChunkInStream: InStream;
     begin
         AccessToken := GetAccessToken(ArchiveSetup);
         SessionUrl := StrSubstNo(CreateSessionUrlLbl, ArchiveSetup."SharePoint Drive ID", SanitizedPath);
@@ -304,7 +304,7 @@ codeunit 50141 "SharePoint Graph Client"
             Content.WriteFrom(ChunkInStream);
             Content.GetHeaders(Headers);
             Headers.Remove('Content-Range');
-            Headers.Add('Content-Range', StrSubstNo('bytes %1-%2/%3', StartByte, EndByte, FileSize));
+            Headers.Add('Content-Range', StrSubstNo(ContentRangeLbl, StartByte, EndByte, FileSize));
             Headers.Remove('Content-Length');
             Headers.Add('Content-Length', Format(CurrentChunkSize));
             Request.Content := Content;
@@ -348,7 +348,7 @@ codeunit 50141 "SharePoint Graph Client"
 
         Url := StrSubstNo(TokenEndpointLbl, ArchiveSetup."Tenant ID");
         BodyText := StrSubstNo(
-            'client_id=%1&scope=%2&client_secret=%3&grant_type=client_credentials',
+            TokenRequestBodyLbl,
             ArchiveSetup."Client ID",
             GraphScopeLbl,
             ClientSecret);

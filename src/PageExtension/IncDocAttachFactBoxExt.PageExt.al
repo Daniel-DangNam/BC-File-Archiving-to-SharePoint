@@ -36,7 +36,7 @@ pageextension 50142 "Inc Doc Attach FactBox Ext" extends "Incoming Doc. Attach. 
                     IncDocAttachment: Record "Incoming Document Attachment";
                     LinkMapping: Record "Archive Link Mapping";
                 begin
-                    if IncDocAttachment.Get(Rec."Incoming Document Entry No.", Rec."Line No.") then begin
+                    if IncDocAttachment.Get(Rec."Incoming Document Entry No.", Rec."Line No.") then
                         if LinkMapping.Get(CopyStr(CompanyName(), 1, 30), IncDocAttachment.SystemId) then begin
                             if LinkMapping."SharePoint Web URL" <> '' then
                                 Hyperlink(LinkMapping."SharePoint Web URL")
@@ -44,7 +44,6 @@ pageextension 50142 "Inc Doc Attach FactBox Ext" extends "Incoming Doc. Attach. 
                                 Message(NoSharePointUrlMsg);
                             exit;
                         end;
-                    end;
                     Message(NotArchivedMsg);
                 end;
             }

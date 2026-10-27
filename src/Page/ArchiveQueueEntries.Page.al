@@ -149,7 +149,7 @@ page 50141 "Archive Queue Entries"
 
                 trigger OnAction()
                 var
-                    GraphClient: Codeunit "SharePoint Graph Client";
+                    GraphClient: Codeunit "SP Archive Graph Client";
                 begin
                     GraphClient.ProcessQueueEntry(Rec);
                     CurrPage.Update(false);
@@ -165,7 +165,7 @@ page 50141 "Archive Queue Entries"
                 trigger OnAction()
                 var
                     ArchiveSetup: Record "Archive Setup";
-                    GraphClient: Codeunit "SharePoint Graph Client";
+                    GraphClient: Codeunit "SP Archive Graph Client";
                 begin
                     ArchiveSetup.Get();
                     GraphClient.ProcessPendingQueueEntries(ArchiveSetup."Batch Size");

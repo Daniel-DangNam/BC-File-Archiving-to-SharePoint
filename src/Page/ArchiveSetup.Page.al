@@ -120,12 +120,12 @@ page 50140 "Archive Setup"
             {
                 ApplicationArea = All;
                 Caption = 'Test Connection';
-                Image = ValidateDatabase;
+                Image = Link;
                 ToolTip = 'Validates the Microsoft Entra ID authentication and verifies that the specified SharePoint Drive exists and is accessible.';
 
                 trigger OnAction()
                 var
-                    GraphClient: Codeunit "SharePoint Graph Client";
+                    GraphClient: Codeunit "SP Archive Graph Client";
                 begin
                     GraphClient.TestConnection(Rec);
                 end;
