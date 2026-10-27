@@ -16,10 +16,11 @@
   "application": "28.0.0.0",
   "idRanges": [
     {
-      "from": 50100,
-      "to": 50149
+      "from": 50140,
+      "to": 50189
     }
   ],
+
   "resourceExposurePolicy": {
     "allowDebugging": true,
     "allowDownloadingSource": true,

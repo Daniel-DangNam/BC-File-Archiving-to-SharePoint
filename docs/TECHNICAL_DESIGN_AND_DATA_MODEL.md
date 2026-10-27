@@ -2,7 +2,7 @@
 
 ## Dự án: Business Central File Archiving to SharePoint
 
-**Phiên bản:** 1.2 | **Trạng thái:** Chờ phê duyệt (Discovery & Technical Design - Chốt chặn an toàn & Khóa cứng Purge)  
+**Phiên bản:** 1.3 | **Trạng thái:** Chờ phê duyệt (Discovery & Technical Design - Đã xác minh Test 1 & Test 2 thực tế; Chốt dải ID 50140..50189 & Ngữ cảnh Đa công ty)  
 **Phạm vi:** Dynamics 365 Business Central Cloud SaaS (v28) & Microsoft SharePoint Online
 
 ---
@@ -67,7 +67,7 @@ Cần thực hiện báo cáo điều tra (Discovery Query chỉ đọc) trên b
 > 4. **Tách rời tuyệt đối 2 pha: Upload vs. Purge.** Không bao giờ xóa file trên BC ngay sau khi upload nếu chưa qua quy trình phê duyệt (Secondary Approval Workflow).
 > 5. **Loại bỏ tính năng Restore ra khỏi Phase 1 (MVP):** Không đưa "Restore Attachment to BC" vào giai đoạn đầu vì rủi ro tạo duplicate Media và ghi sai source record rất cao. Phase 1 chỉ tập trung vào: Preview $\rightarrow$ Queue $\rightarrow$ Upload $\rightarrow$ Verify $\rightarrow$ Retain Link $\rightarrow$ Approval $\rightarrow$ Purge $\rightarrow$ Audit.
 > 6. **KHÓA CỨNG TÍNH NĂNG PURGE (HARD-LOCK PURGE GATEKEEPER):** Trong giai đoạn hiện tại, extension CHỈ CHO PHÉP thực thi: **Preview / Dry Run**, **Upload to SharePoint** và **Đối soát Verify (Size & Hash)**. Toàn bộ hành vi xóa nhị phân (Purge) bị khóa cứng cả ở tầng giao diện lẫn tầng nghiệp vụ (codeunit), tuyệt đối không xóa bất kỳ dữ liệu nào trên Production cho đến khi vượt qua đủ 5 điều kiện tiên quyết.
-> 7. **XÁC MINH DẢI OBJECT ID (50100..50149):** Bắt buộc kiểm tra trang `Page 9100 "All Objects with Captions"` trên tenant APSS trước khi triển khai để đảm bảo dải ID 50100..50149 không bị xung đột với bất kỳ extension Per-Tenant (PTE) hoặc ứng dụng lõi nào của APSS.
+> 7. **XÁC MINH DẢI OBJECT ID (50140..50189) [ĐÃ HOÀN TẤT KIỂM TRA THỰC TẾ - TEST 1]:** Kết quả kiểm tra trực tiếp trên `Page 9100 "All Objects with Captions"` trên tenant APSS xác nhận: các object hiện tại đang chiếm dải `50100 .. 50136`. Từ ID **`50137` trở đi hoàn toàn trống (không có bất kỳ match nào)**. Dự án chính thức phân bổ và chốt dải ID an toàn **`50140 .. 50189`** (50 IDs) trong `app.json` cho toàn bộ Table, Page, Codeunit, Enum và PermissionSet của extension.
 
 ---
 
@@ -117,33 +117,73 @@ Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà đư
 - **Lựa chọn B:** So khớp theo ngày chứng từ (`Document Date`).
 - **Lựa chọn C (Fallback kỹ thuật):** So khớp theo ngày đính kèm tệp (`Attached Date` trên Table 1173 hoặc `Created Date-Time` trên Table 133).
 
-### 3.4. Nguyên tắc Ngữ cảnh Đa Pháp nhân (Company Context & ChangeCompany)
+### 3.4. Nguyên tắc Ngữ cảnh Đa Pháp nhân (Company Context & ChangeCompany) [ĐÃ KIỂM THỬ THỰC TẾ - TEST 2]
 
 > [!IMPORTANT]
-> **QUY TẮC QUẢN LÝ COMPANY CONTEXT:**
-> Cả 2 bảng nguồn `Document Attachment` (Table 1173) và `Incoming Document Attachment` (Table 133) đều có thuộc tính **`DataPerCompany = true`** (dữ liệu được phân vùng riêng biệt theo từng pháp nhân).
-> - Việc bổ sung trường `Company Name` vào bảng Queue hoặc Link Mapping chỉ có tác dụng lưu vết và làm khóa định danh, **không tự động giải quyết việc truy vấn chéo giữa các công ty con**.
-> - Trong toàn bộ logic xử lý (quét dữ liệu, đọc stream tệp, verify và purge), code AL **BẮT BUỘC** phải gọi lệnh chuyển ngữ cảnh công ty trước khi thao tác:
->   ```al
->   DocAttachment.ChangeCompany(ArchiveQueueEntry."Company Name");
->   if DocAttachment.Get(...) then ...
->   ```
-> - Nếu bỏ qua `ChangeCompany`, Business Central sẽ mặc định đọc vào công ty hiện hành của phiên làm việc (session context), dẫn đến lỗi không tìm thấy bản ghi hoặc thao tác sai lệch trên dữ liệu của công ty khác.
+> **KẾT QUẢ KIỂM NGHIỆM THỰC TẾ TRÊN TENANT APSS (TEST 2):**
+> - **Kịch bản thực hiện:** Đã đính kèm 1 tệp vào Sales Order `APSS-SO-2404-054` tại công ty **`June9 Asia Pacific Solutions Supply Pte Ltd`**. Khi chuyển đổi ngữ cảnh sang công ty **`June9 APSS Viet Nam Co.,Ltd`**, mở danh sách Sales Order thì **hoàn toàn không tìm thấy** Sales Order `APSS-SO-2404-054` cũng như tệp đính kèm tương ứng.
+> - **Bằng chứng xác nhận:** Dữ liệu chứng từ và file đính kèm được phân vùng hoàn toàn tách biệt giữa các pháp nhân (`DataPerCompany = true`).
+> - **Hệ quả kiến trúc bắt buộc tuân thủ:**
+>   1. Việc bổ sung trường `Company Name` vào bảng Queue hoặc Link Mapping làm thành phần khóa chính `("Company Name", "Attachment SystemId")` là **bắt buộc** để tránh xung đột dữ liệu chéo giữa các công ty con.
+>   2. Tuy nhiên, thêm trường vào khóa chính **không tự động giải quyết việc truy vấn chéo giữa các công ty**. Trong toàn bộ logic xử lý (quét dữ liệu, đọc stream tệp, verify và purge), code AL **BẮT BUỘC** phải gọi lệnh chuyển ngữ cảnh công ty trước khi thao tác:
+>      ```al
+>      DocAttachment.ChangeCompany(ArchiveQueueEntry."Company Name");
+>      if DocAttachment.Get(...) then ...
+>      ```
+>   3. Nếu bỏ qua `ChangeCompany`, Business Central sẽ mặc định đọc vào công ty hiện hành của phiên làm việc (session context), dẫn đến lỗi không tìm thấy bản ghi hoặc thao tác sai lệch trên dữ liệu của công ty khác.
 
 ---
 
 
-## 4. BẰNG CHỨNG THỰC NGHIỆM PURGE MEDIA (PROOF-OF-CONCEPT TRÊN SANDBOX)
+## 4. BẰNG CHỨNG THỰC NGHIỆM PURGE MEDIA & KIỂM THỬ TIỀN TRIỂN KHAI (POC TRÊN SANDBOX)
 
 > [!WARNING]
-> Luận điểm _"Clear field trên Document Attachment thì BC tự giải phóng Tenant Media"_ bắt buộc phải được chứng minh bằng thực nghiệm PoC trên Sandbox trước khi viết code triển khai.
+> Luận điểm _"Clear field trên Document Attachment thì BC tự giải phóng Tenant Media"_ bắt buộc phải được chứng minh bằng thực nghiệm PoC trên Sandbox trước khi viết code nghiệp vụ Purge.
 
-### Bộ 6 Kịch bản Thực nghiệm PoC Bắt buộc:
+### 4.1. Báo cáo Kết quả Kiểm thử Tiền Triển khai (Đã Thực nghiệm trên Tenant APSS)
 
+| Mã Test | Nội dung Kiểm thử | Thực tế Ghi nhận trên Tenant APSS | Kết luận Kiến trúc |
+| :---: | :--- | :--- | :--- |
+| **Test 1** | Xác minh dải Object ID trên `Page 9100 "All Objects with Captions"` | Dải `50100 .. 50136` đã có object sử dụng trên tenant. **Từ `50137` trở đi hoàn toàn trống (không có bất kỳ match nào).** | **ĐẠT (PASSED).** Phân bổ và chốt cứng dải ID **`50140 .. 50189`** (50 IDs) trong `app.json`. |
+| **Test 2** | Kiểm chứng phân vùng dữ liệu Đa Pháp nhân (`DataPerCompany`) | Đính kèm 1 file vào Sales Order `APSS-SO-2404-054` tại công ty `June9 Asia Pacific Solutions Supply Pte Ltd`. Chuyển sang công ty `June9 APSS Viet Nam Co.,Ltd` mở danh sách Sales Order: **hoàn toàn không tìm thấy Sales Order và tệp đính kèm**. | **ĐẠT (PASSED).** Xác nhận 100% dữ liệu phân vùng độc lập. Khóa chính `Archive Link Mapping` bắt buộc có `Company Name` và Job Queue bắt buộc gọi `ChangeCompany()`. |
+
+### 4.2. Bộ Kịch bản Kiểm thử PoC Kế tiếp trên Sandbox (Thực hiện Trước khi Viết Code Extension)
+
+Trước khi viết bất kỳ code logic Purge nào, cần thực hiện 2 kiểm thử nghiệm thu trực quan trên môi trường Sandbox:
+
+#### 1. Test 3: Kiểm chứng Cơ chế Shared Media (Sales Order $\rightarrow$ Posted Sales Invoice)
+- **Mục tiêu:** Xác định xem khi một Sales Order có đính kèm file được Post thành Posted Sales Invoice, BC có nhân đôi binary file trong `Tenant Media` hay dùng chung 1 Media GUID.
+- **Quy trình thực hiện trên Sandbox:**
+  1. Tạo 1 Sales Order nháp tại công ty `June9 Asia Pacific Solutions Supply Pte Ltd` (ví dụ `SO-TEST-POC01`).
+  2. Bấm vào icon đính kèm (Attachments), đính kèm 1 file PDF bất kỳ.
+  3. Mở trang `Document Attachment Details` (Page 1173), bật **Page Inspection** (`Ctrl + Alt + F1`):
+     - Quan sát trường `Document Reference ID` (ghi lại chuỗi Media GUID, ví dụ: `{a1b2c3d4-...}`).
+  4. Thực hiện Post Sales Order thành **Posted Sales Invoice** (hoặc Posted Sales Shipment).
+  5. Mở Posted Sales Invoice vừa sinh ra $\rightarrow$ Mở `Document Attachment Details` $\rightarrow$ Bật Page Inspection:
+     - Quan sát trường `Document Reference ID` trên bản ghi đính kèm của hóa đơn.
+  6. **Đối soát:** Nếu GUID trùng khớp với GUID ở Sales Order $\rightarrow$ **Xác nhận 100% Shared Media**. Extension bắt buộc phải kiểm tra reference count trước khi dọn dẹp nhị phân.
+
+#### 2. Test 4: Kiểm chứng Thao tác Clear Media / Non-destructive Purge
+- **Mục tiêu:** Kiểm tra xem khi thực hiện `Clear(DocAttachment."Document Reference ID")` và `DocAttachment.Modify(false)`:
+  - Dòng metadata (File Name, Extension) có còn hiển thị trên Page 1173 hay không?
+  - UI có bị crash khi người dùng mở trang hay không?
+- **Quy trình thực hiện trên Sandbox:**
+  1. Chọn 1 chứng từ thử nghiệm đã đính kèm file trên Sandbox.
+  2. Thực hiện lệnh kiểm thử xóa nhị phân có kiểm soát (qua action test hoặc codeunit test tối giản):
+     ```al
+     if DocAttachment.Get(TableId, DocNo, DocType, LineNo, AttachmentId) then begin
+         Clear(DocAttachment."Document Reference ID");
+         DocAttachment.Modify(false);
+     end;
+     ```
+  3. Mở lại trang `Document Attachment Details` của chứng từ: Dòng đính kèm vẫn hiển thị đầy đủ tên file và metadata, giao diện chuẩn của BC không bị lỗi.
+  4. Người dùng bấm xem file: BC sẽ thông báo file trống (hoàn toàn tương thích để chèn action `Open from SharePoint`).
+
+### 4.3. Bộ 6 Kịch bản PoC Tổng thể Hoàn thiện
 1. **Kịch bản 1: 1 Attachment — 1 Media GUID:** Tạo 1 attachment mới, kiểm tra `Tenant Media` có 1 record. Clear field `Document Reference ID` trên attachment $\rightarrow$ Xác minh xem record trong `Tenant Media` có bị xóa ngay hay chờ background process dọn dẹp.
 2. **Kịch bản 2: Shared Media (Nhiều attachment trỏ vào 1 Media GUID):** Tạo 2 attachment trỏ vào cùng 1 Media GUID. Clear 1 attachment $\rightarrow$ **Xác minh attachment còn lại có bị lỗi không** và `Tenant Media` có bị xóa vội hay không. (Kỳ vọng: Media vẫn còn cho attachment thứ 2).
-3. **Kịch bản 3: Post chứng từ (Copy từ Order sang Invoice):** Tạo Sales Order có attachment $\rightarrow$ Post ra Posted Invoice. Kiểm tra xem Media GUID có bị nhân đôi hay dùng chung. Thực hiện purge trên Invoice và kiểm tra trạng thái trên Order.
-4. **Kịch bản 4: Xóa Binary nhưng giữ Metadata:** Clear `Document Reference ID` hoặc `Content` nhưng giữ nguyên tên file, extension, size trên record $\rightarrow$ Đảm bảo UI chuẩn của BC không bị crash khi người dùng mở trang attachment.
+3. **Kịch bản 3: Post chứng từ (Copy từ Order sang Invoice):** Đã đặc tả chi tiết tại Test 3 ở trên.
+4. **Kịch bản 4: Xóa Binary nhưng giữ Metadata:** Đã đặc tả chi tiết tại Test 4 ở trên.
 5. **Kịch bản 5: Khởi động lại Service / Session mới:** Sau khi clear media, restart session và kiểm tra lại trạng thái.
 6. **Kịch bản 6: Đo lường dung lượng thực tế:** Theo dõi trang _Admin Center > Capacity_ trước và sau khi purge (chú ý: BC Cloud cập nhật dung lượng có độ trễ từ vài giờ đến 24 giờ).
 
@@ -201,7 +241,7 @@ $$\mathbf{\text{[Archive Document Library]}} \;/\; \mathbf{\text{[Company Name]}
 
 ## 7. CHI TIẾT MÔ HÌNH DỮ LIỆU (DATA MODEL AL EXTENSION V1.1)
 
-Hệ thống được thiết kế hoàn toàn trên dải ID độc lập (`50100 .. 50149`). Dưới đây là schema đã bổ sung đầy đủ **Company Name, Source Identity, Checksum, Error Tracking và Deterministic Archive Key**:
+Hệ thống được thiết kế hoàn toàn trên dải ID độc lập đã xác minh an toàn (`50140 .. 50189`). Dưới đây là schema đã bổ sung đầy đủ **Company Name, Source Identity, Checksum, Error Tracking và Deterministic Archive Key**:
 
 ```mermaid
 erDiagram
@@ -267,12 +307,12 @@ erDiagram
     }
 ```
 
-### 7.1. Bảng 1: `Archive Setup` (Table 50100)
+### 7.1. Bảng 1: `Archive Setup` (Table 50140)
 
 ```al
 namespace APSS.FileArchiving;
 
-table 50100 "Archive Setup"
+table 50140 "Archive Setup"
 {
     DataClassification = CustomerContent;
     Caption = 'Archive Setup';
@@ -354,12 +394,12 @@ table 50100 "Archive Setup"
 }
 ```
 
-### 7.2. Bảng 2: `Archive Queue Entry` (Table 50101)
+### 7.2. Bảng 2: `Archive Queue Entry` (Table 50141)
 
 ```al
 namespace APSS.FileArchiving;
 
-table 50101 "Archive Queue Entry"
+table 50141 "Archive Queue Entry"
 {
     DataClassification = CustomerContent;
     Caption = 'Archive Queue Entry';
@@ -522,12 +562,12 @@ table 50101 "Archive Queue Entry"
 }
 ```
 
-### 7.3. Bảng 3: `Archive Audit Log` (Table 50102)
+### 7.3. Bảng 3: `Archive Audit Log` (Table 50142)
 
 ```al
 namespace APSS.FileArchiving;
 
-table 50102 "Archive Audit Log"
+table 50142 "Archive Audit Log"
 {
     DataClassification = CustomerContent;
     Caption = 'Archive Audit Log';
@@ -592,12 +632,12 @@ table 50102 "Archive Audit Log"
 }
 ```
 
-### 7.4. Bảng 4: `Archive Link Mapping` (Table 50103)
+### 7.4. Bảng 4: `Archive Link Mapping` (Table 50143)
 
 ```al
 namespace APSS.FileArchiving;
 
-table 50103 "Archive Link Mapping"
+table 50143 "Archive Link Mapping"
 {
     DataClassification = CustomerContent;
     Caption = 'Archive Link Mapping';
@@ -660,7 +700,7 @@ table 50103 "Archive Link Mapping"
 
 ### 7.5. Các Enum Trạng thái
 
-- **`Archive Process Status` (Enum 50100):**
+- **`Archive Process Status` (Enum 50140):**
   - `Draft / Preview` (Chỉ xem trước Dry-run)
   - `Pending Upload` (Đã đưa vào hàng đợi)
   - `Uploading` (Đang upload chunk session)
@@ -668,7 +708,7 @@ table 50103 "Archive Link Mapping"
   - `Verified` (Đã verify size/hash thành công 100%)
   - `Failed` (Lỗi upload hoặc lỗi verify)
   - `Skipped / Orphan` (Bỏ qua do không có source document hoặc orphan)
-- **`Purge Process Status` (Enum 50101):**
+- **`Purge Process Status` (Enum 50141):**
   - `Not Eligible` (Chưa đủ điều kiện)
   - `Pending Approval` (Chờ người có thẩm quyền duyệt)
   - `Approved` (Đã duyệt, sẵn sàng dọn dẹp)
@@ -676,7 +716,7 @@ table 50103 "Archive Link Mapping"
   - `Expired` (Hết hạn duyệt, cần re-verify)
   - `Purged` (Đã giải phóng an toàn trong BC)
   - `Purge Failed` (Lỗi trong quá trình clear binary)
-- **`Archive Audit Action` (Enum 50102):**
+- **`Archive Audit Action` (Enum 50142):**
   - `DryRun`, `Queued`, `UploadStarted`, `UploadSucceeded`, `VerifySucceeded`, `VerifyFailed`, `PurgeRequested`, `PurgeApproved`, `PurgeRejected`, `PurgeCompleted`.
 
 ---
@@ -708,7 +748,7 @@ sequenceDiagram
     autonumber
     actor User as Kế toán / End User
     participant UI as Màn hình Archive Setup/Queue
-    participant Queue as Archive Queue (T50101)
+    participant Queue as Archive Queue (T50141)
     participant JQ as Job Queue (Background)
     participant Graph as Microsoft Graph API
     participant SP as SharePoint Online
@@ -822,9 +862,9 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
 
 - **Trạng thái tính năng hiện tại:** Extension được quy định triển khai ở trạng thái **Khóa cứng tính năng Purge (Hard-Lock)**. Hệ thống chỉ cho phép vận hành: **Preview / Dry Run**, **Upload to SharePoint**, **Verify đối soát kép** và **Lưu trữ Link hiển thị trên BC**.
 - **Điều kiện mở khóa Purge trên Production:** Tính năng Purge tuyệt đối không được kích hoạt trên Production cho đến khi đáp ứng đầy đủ **5 điều kiện tiên quyết**:
-  1. *Phương thức Purge chuẩn xác:* Đã chốt API `Modify(false)` và `Remove()` trên Table 1173 và Table 133, không gọi `.Delete()`.
-  2. *Biên bản nghiệm thu PoC Sandbox:* Đã chứng minh thực tế việc clear Media/BLOB không làm hỏng tham chiếu chứng từ hoặc shared media.
-  3. *Khóa chính đa pháp nhân:* Bảng `Archive Link Mapping` đã được chuẩn hóa với khóa chính `("Company Name", "Attachment SystemId")`.
-  4. *Kiến trúc Token / Credentials:* Đã thống nhất bằng văn bản với IT về mô hình Client Secret / Certificate phù hợp với AL Cloud.
-  5. *Xác minh dải ID 50100..50149:* Đã kiểm tra qua `Page 9100` xác nhận không bị trùng với bất kỳ extension PTE nào của APSS.
-- **Tiến độ mã nguồn:** Đang giữ nguyên trạng thái **chưa viết code** theo đúng kế hoạch.
+  1. *Phương thức Purge chuẩn xác:* Đã chốt API `Clear()` + `Modify(false)` trên Table 1173 và Table 133, không gọi `.Delete()`. Kịch bản kiểm thử PoC (Test 4) đã sẵn sàng để kiểm chứng trên Sandbox.
+  2. *Biên bản nghiệm thu PoC Sandbox:* Đang tiến hành; đã sẵn sàng kịch bản Test 3 (Shared Media giữa Order và Invoice) và Test 4 (Clear Media an toàn) trên Sandbox.
+  3. *Khóa chính đa pháp nhân:* **ĐÃ ĐẠT & XÁC MINH THỰC TẾ (TEST 2).** Kiểm thử trên Sales Order `APSS-SO-2404-054` xác nhận dữ liệu phân vùng độc lập (`DataPerCompany = true`). Bảng `Archive Link Mapping` đã chuẩn hóa khóa chính `("Company Name", "Attachment SystemId")` và quy tắc bắt buộc gọi `ChangeCompany()`.
+  4. *Kiến trúc Token / Credentials:* **ĐÃ CHỐT PHƯƠNG ÁN.** Thống nhất Mô hình 1: OAuth2 Client Credentials Grant Flow với Client Secret lưu trong `IsolatedStorage` (Masked), chuẩn native M365 cho AL Cloud.
+  5. *Xác minh dải ID 50140..50189:* **ĐÃ ĐẠT & XÁC MINH THỰC TẾ (TEST 1).** Đã kiểm tra qua `Page 9100` xác nhận từ ID `50137` trở đi hoàn toàn trống; đã chốt dải ID `50140 .. 50189` trong `app.json`.
+- **Tiến độ mã nguồn:** Đang giữ nguyên trạng thái **chưa viết code nghiệp vụ extension** theo đúng kế hoạch. Toàn bộ kịch bản kiểm thử tiền triển khai (Test 3 & Test 4) sẽ được thực hiện trước khi bắt đầu code.
