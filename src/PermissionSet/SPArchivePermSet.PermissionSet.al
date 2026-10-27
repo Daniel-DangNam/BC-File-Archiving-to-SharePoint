@@ -12,5 +12,8 @@ permissionset 50140 SPArchivePermSet
         table "Archive Audit Log" = X,
         tabledata "Archive Audit Log" = RMID,
         table "Archive Link Mapping" = X,
-        tabledata "Archive Link Mapping" = RMID;
+        tabledata "Archive Link Mapping" = RMID,
+        page "Archive Setup" = X,
+        page "Archive Queue Entries" = X,
+        page "Archive Audit Logs" = X;
 }
