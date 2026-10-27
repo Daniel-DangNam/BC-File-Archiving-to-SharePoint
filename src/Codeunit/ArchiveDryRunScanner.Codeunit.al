@@ -1,17 +1,15 @@
 namespace APSS.FileArchiving;
 
-using Microsoft.Foundation.Attachment;
 using Microsoft.EServices.EDocument;
-using System.Security.Encryption;
+using Microsoft.Foundation.Attachment;
 using System.Environment;
+using System.Security.Encryption;
 
 codeunit 50140 "Archive Dry-Run Scanner"
 {
     TableNo = "Archive Setup";
 
     trigger OnRun()
-    var
-        CutOffDate: Date;
     begin
         RunDryRun(Rec, WorkDate(), false);
     end;
@@ -21,7 +19,7 @@ codeunit 50140 "Archive Dry-Run Scanner"
         TotalFiles: Integer;
         TotalBytes: BigInteger;
     begin
-        RunDryRunForCompany(ArchiveSetup, CompanyName(), CutOffDate, TotalFiles, TotalBytes);
+        RunDryRunForCompany(ArchiveSetup, CopyStr(CompanyName(), 1, 30), CutOffDate, TotalFiles, TotalBytes);
 
         if ShowSummary then
             Message(SummaryMsg, TotalFiles, FormatBytes(TotalBytes), CutOffDate);
@@ -52,8 +50,8 @@ codeunit 50140 "Archive Dry-Run Scanner"
         AuditLog."Action Type" := AuditLog."Action Type"::DryRun;
         AuditLog."Old Status" := '';
         AuditLog."New Status" := 'Draft / Preview';
-        AuditLog."Message" := CopyStr(StrSubstNo('Preview scan completed: %1 eligible files, %2 bytes evaluated.', OutTotalFiles, OutTotalBytes), 1, MaxStrLen(AuditLog."Message"));
-        AuditLog."Verification Proof" := CopyStr(StrSubstNo('Cut-Off Date: %1, Rule: %2', CutOffDate, ArchiveSetup."Cut-Off Date Rule"), 1, MaxStrLen(AuditLog."Verification Proof"));
+        AuditLog."Message" := CopyStr(StrSubstNo(PreviewLogMsg, OutTotalFiles, OutTotalBytes), 1, MaxStrLen(AuditLog."Message"));
+        AuditLog."Verification Proof" := CopyStr(StrSubstNo(VerificationProofTxt, CutOffDate, ArchiveSetup."Cut-Off Date Rule"), 1, MaxStrLen(AuditLog."Verification Proof"));
         AuditLog.Insert(true);
     end;
 
@@ -177,11 +175,21 @@ codeunit 50140 "Archive Dry-Run Scanner"
         if CutOffDate = 0D then
             exit(true);
 
-        AttachedDate := DT2Date(DocAttachment."Attached Date");
-        if AttachedDate = 0D then
-            exit(true);
-
-        exit(AttachedDate <= CutOffDate);
+        case CutOffRule of
+            CutOffRule::"Attached Date":
+                begin
+                    AttachedDate := DT2Date(DocAttachment."Attached Date");
+                    if AttachedDate = 0D then
+                        exit(true);
+                    exit(AttachedDate <= CutOffDate);
+                end;
+            else begin
+                AttachedDate := DT2Date(DocAttachment."Attached Date");
+                if AttachedDate = 0D then
+                    exit(true);
+                exit(AttachedDate <= CutOffDate);
+            end;
+        end;
     end;
 
     local procedure IsIncomingDocEligible(
@@ -189,19 +197,25 @@ codeunit 50140 "Archive Dry-Run Scanner"
         CutOffRule: Option "Posting Date","Document Date","Attached Date";
         CutOffDate: Date): Boolean
     var
-        CreatedDate: Date;
+        TargetDate: Date;
     begin
         if CutOffDate = 0D then
             exit(true);
 
-        CreatedDate := DT2Date(IncDocAttachment."Created Date-Time");
-        if CreatedDate = 0D then
-            CreatedDate := IncDocAttachment."Posting Date";
+        case CutOffRule of
+            CutOffRule::"Posting Date":
+                TargetDate := IncDocAttachment."Posting Date";
+            else
+                TargetDate := DT2Date(IncDocAttachment."Created Date-Time");
+        end;
 
-        if CreatedDate = 0D then
+        if TargetDate = 0D then
+            TargetDate := IncDocAttachment."Posting Date";
+
+        if TargetDate = 0D then
             exit(true);
 
-        exit(CreatedDate <= CutOffDate);
+        exit(TargetDate <= CutOffDate);
     end;
 
     local procedure GenerateDeterministicKey(
@@ -211,7 +225,7 @@ codeunit 50140 "Archive Dry-Run Scanner"
         FileSize: BigInteger): Text[128]
     var
         CryptographyManagement: Codeunit "Cryptography Management";
-        HashAlgorithmType: Enum "Hash Algorithm";
+        HashAlgorithmType: Option MD5,SHA1,SHA256,SHA384,SHA512;
         RawInput: Text;
     begin
         RawInput := TargetCompany + '_' + Format(SourceTableId) + '_' + Format(AttachmentSystemId) + '_' + Format(FileSize);
@@ -224,10 +238,14 @@ codeunit 50140 "Archive Dry-Run Scanner"
     begin
         MB := Bytes / 1048576;
         if MB < 1 then
-            exit(StrSubstNo('%1 KB', Bytes div 1024));
-        exit(StrSubstNo('%1 MB', Round(MB, 0.01)));
+            exit(StrSubstNo(SizeKBLbl, Bytes div 1024));
+        exit(StrSubstNo(SizeMBLbl, Round(MB, 0.01)));
     end;
 
     var
-        SummaryMsg: Label 'Preview / Dry-Run hoàn tất:\- Tổng số tệp thỏa điều kiện: %1\- Tổng dung lượng dự kiến giải phóng: %2\- Ngày Cut-off: %3\n(Lưu ý: Chế độ Dry-Run chỉ quét thống kê, không upload và không xóa bất kỳ dữ liệu nào trên BC).';
+        SummaryMsg: Label 'Preview / Dry-Run hoàn tất:\- Tổng số tệp thỏa điều kiện: %1\- Tổng dung lượng dự kiến giải phóng: %2\- Ngày Cut-off: %3\n(Lưu ý: Chế độ Dry-Run chỉ quét thống kê, không upload và không xóa bất kỳ dữ liệu nào trên BC).', Comment = '%1 = File count, %2 = Formatted size, %3 = Cut-off date';
+        PreviewLogMsg: Label 'Preview scan completed: %1 eligible files, %2 bytes evaluated.', Comment = '%1 = File count, %2 = Bytes';
+        VerificationProofTxt: Label 'Cut-Off Date: %1, Rule: %2', Comment = '%1 = Date, %2 = Rule';
+        SizeKBLbl: Label '%1 KB', Comment = '%1 = Kilobytes';
+        SizeMBLbl: Label '%1 MB', Comment = '%1 = Megabytes';
 }
