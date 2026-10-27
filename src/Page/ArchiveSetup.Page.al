@@ -121,9 +121,6 @@ page 50140 "Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Test Connection';
                 Image = ValidateDatabase;
-                Promoted = true;
-                PromotedCategory = Process;
-                PromotedIsBig = true;
                 ToolTip = 'Validates the Microsoft Entra ID authentication and verifies that the specified SharePoint Drive exists and is accessible.';
 
                 trigger OnAction()
@@ -138,9 +135,6 @@ page 50140 "Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Run Preview / Dry Run';
                 Image = Start;
-                Promoted = true;
-                PromotedCategory = Process;
-                PromotedIsBig = true;
                 ToolTip = 'Scans attachments matching the Cut-Off Date and shows the eligible file count and potential capacity release without uploading or purging anything.';
 
                 trigger OnAction()
@@ -168,6 +162,31 @@ page 50140 "Archive Setup"
                 Image = Log;
                 RunObject = page "Archive Audit Logs";
                 ToolTip = 'Opens the immutable audit log for all archiving actions.';
+            }
+        }
+        area(Promoted)
+        {
+            group(Category_Process)
+            {
+                Caption = 'Process';
+
+                actionref(TestConnection_Promoted; TestConnection)
+                {
+                }
+                actionref(RunDryRun_Promoted; RunDryRun)
+                {
+                }
+            }
+            group(Category_Archive)
+            {
+                Caption = 'Archive';
+
+                actionref(OpenQueue_Promoted; OpenQueue)
+                {
+                }
+                actionref(OpenAuditLog_Promoted; OpenAuditLog)
+                {
+                }
             }
         }
     }

@@ -27,9 +27,6 @@ pageextension 50140 "Doc Attachment Details Ext" extends "Document Attachment De
                 ApplicationArea = All;
                 Caption = 'Open from SharePoint';
                 Image = Web;
-                Promoted = true;
-                PromotedCategory = Process;
-                PromotedIsBig = true;
                 ToolTip = 'Opens the archived document directly in SharePoint Online.';
                 Scope = Repeater;
                 Enabled = IsArchivedToSharePoint;
@@ -46,6 +43,12 @@ pageextension 50140 "Doc Attachment Details Ext" extends "Document Attachment De
                     end else
                         Message(NotArchivedMsg);
                 end;
+            }
+        }
+        addafter(Preview_Promoted)
+        {
+            actionref(OpenFromSharePoint_Promoted; OpenFromSharePoint)
+            {
             }
         }
     }

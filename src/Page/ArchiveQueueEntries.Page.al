@@ -128,9 +128,6 @@ page 50141 "Archive Queue Entries"
                 ApplicationArea = All;
                 Caption = 'Run Preview / Dry Run';
                 Image = Start;
-                Promoted = true;
-                PromotedCategory = Process;
-                PromotedIsBig = true;
                 ToolTip = 'Scans attachments matching the Cut-Off Date and populates the queue in Draft mode.';
 
                 trigger OnAction()
@@ -148,9 +145,6 @@ page 50141 "Archive Queue Entries"
                 ApplicationArea = All;
                 Caption = 'Upload Selected';
                 Image = Cloud;
-                Promoted = true;
-                PromotedCategory = Process;
-                PromotedIsBig = true;
                 ToolTip = 'Uploads and verifies the currently selected queue entry to SharePoint Online.';
 
                 trigger OnAction()
@@ -166,8 +160,6 @@ page 50141 "Archive Queue Entries"
                 ApplicationArea = All;
                 Caption = 'Process Batch';
                 Image = Process;
-                Promoted = true;
-                PromotedCategory = Process;
                 ToolTip = 'Processes a batch of pending and failed queue entries according to configured batch size.';
 
                 trigger OnAction()
@@ -185,9 +177,6 @@ page 50141 "Archive Queue Entries"
                 ApplicationArea = All;
                 Caption = 'Open in SharePoint';
                 Image = Web;
-                Promoted = true;
-                PromotedCategory = Process;
-                PromotedIsBig = true;
                 ToolTip = 'Opens the archived document directly in SharePoint Online.';
                 Enabled = Rec."SharePoint Web URL" <> '';
 
@@ -202,8 +191,6 @@ page 50141 "Archive Queue Entries"
                 ApplicationArea = All;
                 Caption = 'Audit Trail';
                 Image = Log;
-                Promoted = true;
-                PromotedCategory = Process;
                 ToolTip = 'Views the audit log entries related to this queue item.';
 
                 trigger OnAction()
@@ -226,6 +213,37 @@ page 50141 "Archive Queue Entries"
                 Image = Setup;
                 RunObject = page "Archive Setup";
                 ToolTip = 'Opens the SharePoint archive setup configuration page.';
+            }
+        }
+        area(Promoted)
+        {
+            group(Category_Process)
+            {
+                Caption = 'Process';
+
+                actionref(RunDryRun_Promoted; RunDryRun)
+                {
+                }
+                actionref(UploadToSharePoint_Promoted; UploadToSharePoint)
+                {
+                }
+                actionref(ProcessBatch_Promoted; ProcessBatch)
+                {
+                }
+                actionref(OpenInSharePoint_Promoted; OpenInSharePoint)
+                {
+                }
+                actionref(ViewAuditLog_Promoted; ViewAuditLog)
+                {
+                }
+            }
+            group(Category_Setup)
+            {
+                Caption = 'Setup';
+
+                actionref(OpenSetup_Promoted; OpenSetup)
+                {
+                }
             }
         }
     }
