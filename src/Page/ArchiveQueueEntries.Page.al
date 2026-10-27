@@ -143,6 +143,43 @@ page 50141 "Archive Queue Entries"
                     CurrPage.Update(false);
                 end;
             }
+            action(UploadToSharePoint)
+            {
+                ApplicationArea = All;
+                Caption = 'Upload Selected';
+                Image = Cloud;
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
+                ToolTip = 'Uploads and verifies the currently selected queue entry to SharePoint Online.';
+
+                trigger OnAction()
+                var
+                    GraphClient: Codeunit "SharePoint Graph Client";
+                begin
+                    GraphClient.ProcessQueueEntry(Rec);
+                    CurrPage.Update(false);
+                end;
+            }
+            action(ProcessBatch)
+            {
+                ApplicationArea = All;
+                Caption = 'Process Batch';
+                Image = Process;
+                Promoted = true;
+                PromotedCategory = Process;
+                ToolTip = 'Processes a batch of pending and failed queue entries according to configured batch size.';
+
+                trigger OnAction()
+                var
+                    ArchiveSetup: Record "Archive Setup";
+                    GraphClient: Codeunit "SharePoint Graph Client";
+                begin
+                    ArchiveSetup.Get();
+                    GraphClient.ProcessPendingQueueEntries(ArchiveSetup."Batch Size");
+                    CurrPage.Update(false);
+                end;
+            }
             action(OpenInSharePoint)
             {
                 ApplicationArea = All;

@@ -16,5 +16,6 @@ permissionset 50140 SPArchivePermSet
         page "Archive Setup" = X,
         page "Archive Queue Entries" = X,
         page "Archive Audit Logs" = X,
-        codeunit "Archive Dry-Run Scanner" = X;
+        codeunit "Archive Dry-Run Scanner" = X,
+        codeunit "SharePoint Graph Client" = X;
 }
