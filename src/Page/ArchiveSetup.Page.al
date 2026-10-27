@@ -114,6 +114,26 @@ page 50140 "Archive Setup"
 
     actions
     {
+        area(Processing)
+        {
+            action(RunDryRun)
+            {
+                ApplicationArea = All;
+                Caption = 'Run Preview / Dry Run';
+                Image = Start;
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
+                ToolTip = 'Scans attachments matching the Cut-Off Date and shows the eligible file count and potential capacity release without uploading or purging anything.';
+
+                trigger OnAction()
+                var
+                    DryRunScanner: Codeunit "Archive Dry-Run Scanner";
+                begin
+                    DryRunScanner.RunDryRun(Rec, WorkDate(), true);
+                end;
+            }
+        }
         area(Navigation)
         {
             action(OpenQueue)

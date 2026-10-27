@@ -15,5 +15,6 @@ permissionset 50140 SPArchivePermSet
         tabledata "Archive Link Mapping" = RMID,
         page "Archive Setup" = X,
         page "Archive Queue Entries" = X,
-        page "Archive Audit Logs" = X;
+        page "Archive Audit Logs" = X,
+        codeunit "Archive Dry-Run Scanner" = X;
 }

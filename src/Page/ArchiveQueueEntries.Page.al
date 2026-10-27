@@ -123,6 +123,26 @@ page 50141 "Archive Queue Entries"
     {
         area(Processing)
         {
+            action(RunDryRun)
+            {
+                ApplicationArea = All;
+                Caption = 'Run Preview / Dry Run';
+                Image = Start;
+                Promoted = true;
+                PromotedCategory = Process;
+                PromotedIsBig = true;
+                ToolTip = 'Scans attachments matching the Cut-Off Date and populates the queue in Draft mode.';
+
+                trigger OnAction()
+                var
+                    ArchiveSetup: Record "Archive Setup";
+                    DryRunScanner: Codeunit "Archive Dry-Run Scanner";
+                begin
+                    ArchiveSetup.Get();
+                    DryRunScanner.RunDryRun(ArchiveSetup, WorkDate(), true);
+                    CurrPage.Update(false);
+                end;
+            }
             action(OpenInSharePoint)
             {
                 ApplicationArea = All;
