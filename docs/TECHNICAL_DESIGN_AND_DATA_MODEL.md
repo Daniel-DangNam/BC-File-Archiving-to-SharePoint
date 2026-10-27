@@ -2,7 +2,7 @@
 
 ## Dự án: Business Central File Archiving to SharePoint
 
-**Phiên bản:** 1.1 | **Trạng thái:** Chờ phê duyệt (Discovery & Technical Design - Đã cập nhật)  
+**Phiên bản:** 1.2 | **Trạng thái:** Chờ phê duyệt (Discovery & Technical Design - Chốt chặn an toàn & Khóa cứng Purge)  
 **Phạm vi:** Dynamics 365 Business Central Cloud SaaS (v28) & Microsoft SharePoint Online
 
 ---
@@ -66,6 +66,8 @@ Cần thực hiện báo cáo điều tra (Discovery Query chỉ đọc) trên b
 > 3. **Không chỉnh sửa trực tiếp mã nguồn Production của APSS.** Đóng gói giải pháp trong **AL Extension độc lập**.
 > 4. **Tách rời tuyệt đối 2 pha: Upload vs. Purge.** Không bao giờ xóa file trên BC ngay sau khi upload nếu chưa qua quy trình phê duyệt (Secondary Approval Workflow).
 > 5. **Loại bỏ tính năng Restore ra khỏi Phase 1 (MVP):** Không đưa "Restore Attachment to BC" vào giai đoạn đầu vì rủi ro tạo duplicate Media và ghi sai source record rất cao. Phase 1 chỉ tập trung vào: Preview $\rightarrow$ Queue $\rightarrow$ Upload $\rightarrow$ Verify $\rightarrow$ Retain Link $\rightarrow$ Approval $\rightarrow$ Purge $\rightarrow$ Audit.
+> 6. **KHÓA CỨNG TÍNH NĂNG PURGE (HARD-LOCK PURGE GATEKEEPER):** Trong giai đoạn hiện tại, extension CHỈ CHO PHÉP thực thi: **Preview / Dry Run**, **Upload to SharePoint** và **Đối soát Verify (Size & Hash)**. Toàn bộ hành vi xóa nhị phân (Purge) bị khóa cứng cả ở tầng giao diện lẫn tầng nghiệp vụ (codeunit), tuyệt đối không xóa bất kỳ dữ liệu nào trên Production cho đến khi vượt qua đủ 5 điều kiện tiên quyết.
+> 7. **XÁC MINH DẢI OBJECT ID (50100..50149):** Bắt buộc kiểm tra trang `Page 9100 "All Objects with Captions"` trên tenant APSS trước khi triển khai để đảm bảo dải ID 50100..50149 không bị xung đột với bất kỳ extension Per-Tenant (PTE) hoặc ứng dụng lõi nào của APSS.
 
 ---
 
@@ -94,13 +96,18 @@ graph TD
 - **Trường định danh bất biến:** `SystemId` (GUID) — Ổn định và duy nhất cho từng bản ghi attachment, phù hợp làm thành phần cấu tạo khóa Idempotency.
 - **Trường chứa tệp nhị phân:** `Document Reference ID` (kiểu `Media`).
 - **Rủi ro Shared Media:** Một GUID trong `Tenant Media` có thể được nhiều bản ghi `Document Attachment` tham chiếu tới (ví dụ: đính kèm file vào Sales Order, khi Post thì BC tự copy bản ghi sang Posted Sales Invoice nhưng giữ nguyên Media GUID).
+- **Phương thức / API Purge chuẩn được phép dùng:**
+  - Gọi `DocumentAttachment."Document Reference ID".Remove()` hoặc `Clear(DocumentAttachment."Document Reference ID")`, sau đó gọi `DocumentAttachment.Modify(false)`.
+  - *Cảnh báo bắt buộc:* Tuyệt đối KHÔNG gọi `DocumentAttachment.Delete()` vì sẽ xóa mất dòng metadata đính kèm trên giao diện BC. Bắt buộc dùng `Modify(false)` để tránh kích hoạt các trigger can thiệp ngoài ý muốn của các extension khác.
 
 ### 3.2. Xác minh Table 133 (`Incoming Document Attachment`)
 
 - **Khóa chính thực tế (PK):** `Incoming Document Entry No.`, `Line No.`.
 - **Trường định danh bất biến:** `SystemId` (GUID).
 - **Trường chứa tệp nhị phân:** `Content` (kiểu `BLOB`). Không liên kết với `Tenant Media`.
-- **Cơ chế dọn dẹp:** Sử dụng codeunit chuẩn `Incoming Document Attachment Mgt.` hoặc xóa BLOB có kiểm soát bằng cách clear trường `Content` và cập nhật các trường cờ trạng thái liên quan.
+- **Phương thức / API Purge chuẩn được phép dùng:**
+  - Sử dụng Codeunit chuẩn `Incoming Document Attachment Mgt.` hoặc xóa BLOB có kiểm soát bằng cách `Clear(IncomingDocAttachment.Content)` kết hợp cập nhật các trường cờ trạng thái liên quan, sau đó gọi `IncomingDocAttachment.Modify(false)`.
+
 
 ### 3.3. Chiến lược Cut-Off Date (Mở để chốt với Nghiệp vụ)
 
@@ -139,13 +146,19 @@ Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà đư
   3. Quản trị viên M365 dùng Graph API hoặc PowerShell để cấp quyền **`write` (contribute)** cho duy nhất App Registration này trên **đúng 1 SharePoint Site Collection** lưu trữ. Mọi hành vi truy cập site khác đều bị từ chối (HTTP 403).
   4. Tuyệt đối không dùng thông tin định danh (User Credentials) của cá nhân developer.
 
-### 5.2. Quản lý Vòng đời Credentials & Khóa Bí mật
+### 5.2. Quản lý Vòng đời Credentials & Hai Mô hình Xác thực Khả thi trên BC Cloud
 
-- **Phương thức xác thực:** Hỗ trợ **Client Certificate (.cer / .pfx)** hoặc **Client Secret**.
-- **Lưu trữ an toàn:**
-  - Nếu dùng Secret: Lưu trữ trong **`IsolatedStorage`** (DataScope::Company) với trường nhập liệu Masked.
-  - Nếu yêu cầu bảo mật cao cấp (Private Key Certificate): Cần có thành phần tích hợp với **Azure Key Vault** hoặc dịch vụ ủy quyền nội bộ của công ty để lấy Bearer Token, tránh việc AL phải tự xử lý giải mã Private Key phức tạp.
-- **Cơ chế thu hồi (Revocation):** Có quy trình rõ ràng trong tài liệu vận hành: Khi nghi ngờ lộ credential, IT chỉ cần xóa Secret hoặc Certificate trên Entra ID là toàn bộ tiến trình upload lập tức dừng lại an toàn.
+Do Business Central Cloud SaaS (`Target = Cloud`) không cho phép sử dụng .NET Interop để tự giải mã tệp Private Key Certificate (.pfx), hệ thống thiết kế 2 mô hình triển khai thực tế để chốt với bộ phận IT:
+
+- **Mô hình 1 (Khuyến nghị - Chuẩn M365 Native cho BC Cloud):**
+  - Sử dụng **OAuth2 Client Credentials Grant Flow** với **Client Secret** (thời hạn 1-2 năm).
+  - Client Secret được lưu trữ an toàn trong **`IsolatedStorage`** của Business Central (DataScope::Company) với trường nhập liệu trên Setup Page có thuộc tính `ExtendedDatatype = Masked`.
+  - Đây là mô hình chuẩn hóa, hiệu năng cao và native 100% trong AL Cloud, không làm phát sinh chi phí hạ tầng bổ sung.
+- **Mô hình 2 (Nếu chính sách bảo mật của IT bắt buộc dùng Certificate):**
+  - Không cố gắng xử lý giải mã Certificate trực tiếp trong AL. Thay vào đó, thiết lập một dịch vụ ủy quyền trung gian an toàn (như **Azure Function** có gán Managed Identity hoặc liên kết **Azure Key Vault**).
+  - BC Extension sẽ gọi qua endpoint nội bộ an toàn của Azure Function để nhận Access Token của Graph API.
+- **Cơ chế thu hồi (Revocation):** Thuộc trách nhiệm của IT. Khi nghi ngờ lộ credential, IT chỉ cần xóa Secret hoặc Certificate trên Microsoft Entra ID là toàn bộ tiến trình upload lập tức dừng lại an toàn.
+
 
 ---
 
@@ -584,6 +597,7 @@ table 50103 "Archive Link Mapping"
         field(2; "Company Name"; Text[30])
         {
             Caption = 'Company Name';
+            TableRelation = Company.Name;
         }
         field(3; "Source Table ID"; Integer)
         {
@@ -618,15 +632,16 @@ table 50103 "Archive Link Mapping"
 
     keys
     {
-        key(PK; "Attachment SystemId")
+        key(PK; "Company Name", "Attachment SystemId")
         {
             Clustered = true;
         }
-        key(Idx_Doc; "Company Name", "Source Table ID", "Source Document No.")
+        key(Idx_Doc; "Company Name", "Source Table ID", "Source Document No.", "Source Line No.")
         {
         }
     }
 }
+
 ```
 
 ### 7.5. Các Enum Trạng thái
@@ -788,3 +803,14 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
 |                         | **TC-23** | **Đo lường dung lượng sau khi purge**                 | Xác minh dung lượng Tenant Media và Incoming Document giảm thực tế trên Admin Center (sau chu kỳ cập nhật dung lượng của Microsoft). |
 
 ---
+
+## 12. KẾT LUẬN & CHỐT CHẶN TRIỂN KHAI (PURGE HARD-LOCK GATEKEEPER)
+
+- **Trạng thái tính năng hiện tại:** Extension được quy định triển khai ở trạng thái **Khóa cứng tính năng Purge (Hard-Lock)**. Hệ thống chỉ cho phép vận hành: **Preview / Dry Run**, **Upload to SharePoint**, **Verify đối soát kép** và **Lưu trữ Link hiển thị trên BC**.
+- **Điều kiện mở khóa Purge trên Production:** Tính năng Purge tuyệt đối không được kích hoạt trên Production cho đến khi đáp ứng đầy đủ **5 điều kiện tiên quyết**:
+  1. *Phương thức Purge chuẩn xác:* Đã chốt API `Modify(false)` và `Remove()` trên Table 1173 và Table 133, không gọi `.Delete()`.
+  2. *Biên bản nghiệm thu PoC Sandbox:* Đã chứng minh thực tế việc clear Media/BLOB không làm hỏng tham chiếu chứng từ hoặc shared media.
+  3. *Khóa chính đa pháp nhân:* Bảng `Archive Link Mapping` đã được chuẩn hóa với khóa chính `("Company Name", "Attachment SystemId")`.
+  4. *Kiến trúc Token / Credentials:* Đã thống nhất bằng văn bản với IT về mô hình Client Secret / Certificate phù hợp với AL Cloud.
+  5. *Xác minh dải ID 50100..50149:* Đã kiểm tra qua `Page 9100` xác nhận không bị trùng với bất kỳ extension PTE nào của APSS.
+- **Tiến độ mã nguồn:** Đang giữ nguyên trạng thái **chưa viết code** theo đúng kế hoạch.
