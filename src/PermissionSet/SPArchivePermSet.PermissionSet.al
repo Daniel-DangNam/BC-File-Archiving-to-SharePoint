@@ -4,5 +4,13 @@ permissionset 50140 SPArchivePermSet
 {
     Assignable = true;
     Caption = 'SharePoint Archiving Perms', MaxLength = 30;
+    Permissions =
+        table "Archive Setup" = X,
+        tabledata "Archive Setup" = RMID,
+        table "Archive Queue Entry" = X,
+        tabledata "Archive Queue Entry" = RMID,
+        table "Archive Audit Log" = X,
+        tabledata "Archive Audit Log" = RMID,
+        table "Archive Link Mapping" = X,
+        tabledata "Archive Link Mapping" = RMID;
 }
-
