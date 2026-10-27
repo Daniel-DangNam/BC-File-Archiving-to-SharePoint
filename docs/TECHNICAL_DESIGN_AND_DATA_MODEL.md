@@ -117,7 +117,21 @@ Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà đư
 - **Lựa chọn B:** So khớp theo ngày chứng từ (`Document Date`).
 - **Lựa chọn C (Fallback kỹ thuật):** So khớp theo ngày đính kèm tệp (`Attached Date` trên Table 1173 hoặc `Created Date-Time` trên Table 133).
 
+### 3.4. Nguyên tắc Ngữ cảnh Đa Pháp nhân (Company Context & ChangeCompany)
+
+> [!IMPORTANT]
+> **QUY TẮC QUẢN LÝ COMPANY CONTEXT:**
+> Cả 2 bảng nguồn `Document Attachment` (Table 1173) và `Incoming Document Attachment` (Table 133) đều có thuộc tính **`DataPerCompany = true`** (dữ liệu được phân vùng riêng biệt theo từng pháp nhân).
+> - Việc bổ sung trường `Company Name` vào bảng Queue hoặc Link Mapping chỉ có tác dụng lưu vết và làm khóa định danh, **không tự động giải quyết việc truy vấn chéo giữa các công ty con**.
+> - Trong toàn bộ logic xử lý (quét dữ liệu, đọc stream tệp, verify và purge), code AL **BẮT BUỘC** phải gọi lệnh chuyển ngữ cảnh công ty trước khi thao tác:
+>   ```al
+>   DocAttachment.ChangeCompany(ArchiveQueueEntry."Company Name");
+>   if DocAttachment.Get(...) then ...
+>   ```
+> - Nếu bỏ qua `ChangeCompany`, Business Central sẽ mặc định đọc vào công ty hiện hành của phiên làm việc (session context), dẫn đến lỗi không tìm thấy bản ghi hoặc thao tác sai lệch trên dữ liệu của công ty khác.
+
 ---
+
 
 ## 4. BẰNG CHỨNG THỰC NGHIỆM PURGE MEDIA (PROOF-OF-CONCEPT TRÊN SANDBOX)
 
@@ -146,18 +160,18 @@ Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà đư
   3. Quản trị viên M365 dùng Graph API hoặc PowerShell để cấp quyền **`write` (contribute)** cho duy nhất App Registration này trên **đúng 1 SharePoint Site Collection** lưu trữ. Mọi hành vi truy cập site khác đều bị từ chối (HTTP 403).
   4. Tuyệt đối không dùng thông tin định danh (User Credentials) của cá nhân developer.
 
-### 5.2. Quản lý Vòng đời Credentials & Hai Mô hình Xác thực Khả thi trên BC Cloud
+### 5.2. Quản lý Vòng đời Credentials & Mô hình Xác thực Được Phê Duyệt
 
-Do Business Central Cloud SaaS (`Target = Cloud`) không cho phép sử dụng .NET Interop để tự giải mã tệp Private Key Certificate (.pfx), hệ thống thiết kế 2 mô hình triển khai thực tế để chốt với bộ phận IT:
+Do Business Central Cloud SaaS (`Target = Cloud`) không cho phép sử dụng .NET Interop để tự giải mã tệp Private Key Certificate (.pfx), hệ thống chính thức áp dụng mô hình chuẩn hóa sau:
 
-- **Mô hình 1 (Khuyến nghị - Chuẩn M365 Native cho BC Cloud):**
-  - Sử dụng **OAuth2 Client Credentials Grant Flow** với **Client Secret** (thời hạn 1-2 năm).
+- **Mô hình Chính thức Áp dụng (Chuẩn M365 Native cho BC Cloud):**
+  - Sử dụng **OAuth2 Client Credentials Grant Flow** với **Client Secret** (thời hạn đăng ký từ 1-2 năm).
   - Client Secret được lưu trữ an toàn trong **`IsolatedStorage`** của Business Central (DataScope::Company) với trường nhập liệu trên Setup Page có thuộc tính `ExtendedDatatype = Masked`.
-  - Đây là mô hình chuẩn hóa, hiệu năng cao và native 100% trong AL Cloud, không làm phát sinh chi phí hạ tầng bổ sung.
-- **Mô hình 2 (Nếu chính sách bảo mật của IT bắt buộc dùng Certificate):**
-  - Không cố gắng xử lý giải mã Certificate trực tiếp trong AL. Thay vào đó, thiết lập một dịch vụ ủy quyền trung gian an toàn (như **Azure Function** có gán Managed Identity hoặc liên kết **Azure Key Vault**).
-  - BC Extension sẽ gọi qua endpoint nội bộ an toàn của Azure Function để nhận Access Token của Graph API.
-- **Cơ chế thu hồi (Revocation):** Thuộc trách nhiệm của IT. Khi nghi ngờ lộ credential, IT chỉ cần xóa Secret hoặc Certificate trên Microsoft Entra ID là toàn bộ tiến trình upload lập tức dừng lại an toàn.
+  - Đây là mô hình chuẩn hóa, hiệu năng cao và native 100% trong AL Cloud, không làm phát sinh chi phí duy trì hạ tầng bổ sung.
+- **Phương án Dự phòng (Nếu chính sách bảo mật bắt buộc dùng Certificate trong tương lai):**
+  - Thiết lập dịch vụ ủy quyền trung gian an toàn (như **Azure Function** có gán Managed Identity hoặc liên kết **Azure Key Vault**). BC Extension sẽ gọi qua endpoint nội bộ an toàn của Azure Function để nhận Access Token của Graph API.
+- **Cơ chế thu hồi (Revocation):** Thuộc trách nhiệm của bộ phận quản trị IT. Khi nghi ngờ lộ credential, quản trị viên chỉ cần xóa Secret trên Microsoft Entra ID là toàn bộ tiến trình upload lập tức dừng lại an toàn.
+
 
 
 ---
