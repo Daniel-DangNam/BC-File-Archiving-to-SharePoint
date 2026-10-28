@@ -7,6 +7,7 @@ page 50140 "Archive Setup"
     UsageCategory = Administration;
     SourceTable = "Archive Setup";
     Caption = 'SharePoint Archive Setup';
+    AdditionalSearchTerms = 'sharepoint, archive, setup, storage';
     InsertAllowed = false;
     DeleteAllowed = false;
 

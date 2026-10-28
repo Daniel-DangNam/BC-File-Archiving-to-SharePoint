@@ -8,6 +8,7 @@ page 50141 "Archive Queue Entries"
     SourceTable = "Archive Queue Entry";
     SourceTableView = sorting("Entry No.") order(descending);
     Caption = 'SharePoint Archive Queue Entries';
+    AdditionalSearchTerms = 'sharepoint, archive, queue, storage';
     Editable = false;
     InsertAllowed = false;
     ModifyAllowed = false;
