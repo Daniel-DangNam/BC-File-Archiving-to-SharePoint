@@ -1,9 +1,9 @@
 namespace APSS.FileArchiving;
 
-page 50140 "Archive Setup"
+page 50140 "SharePoint Archive Setup"
 {
     PageType = Card;
-    ApplicationArea = All;
+    ApplicationArea = Basic, Suite;
     UsageCategory = Administration;
     SourceTable = "Archive Setup";
     Caption = 'SharePoint Archive Setup';
@@ -153,7 +153,7 @@ page 50140 "Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Archive Queue';
                 Image = Archive;
-                RunObject = page "Archive Queue Entries";
+                RunObject = page "SharePoint Archive Queue Entries";
                 ToolTip = 'Opens the centralized archive queue to inspect files, statuses, and links.';
             }
             action(OpenAuditLog)
@@ -161,7 +161,7 @@ page 50140 "Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Audit Log';
                 Image = Log;
-                RunObject = page "Archive Audit Logs";
+                RunObject = page "SharePoint Archive Audit Logs";
                 ToolTip = 'Opens the immutable audit log for all archiving actions.';
             }
         }

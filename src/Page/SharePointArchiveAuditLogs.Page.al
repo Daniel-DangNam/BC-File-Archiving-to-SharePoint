@@ -1,13 +1,14 @@
 namespace APSS.FileArchiving;
 
-page 50142 "Archive Audit Logs"
+page 50142 "SharePoint Archive Audit Logs"
 {
     PageType = List;
-    ApplicationArea = All;
+    ApplicationArea = Basic, Suite;
     UsageCategory = History;
     SourceTable = "Archive Audit Log";
     SourceTableView = sorting("Log Entry No.") order(descending);
     Caption = 'SharePoint Archive Audit Logs';
+    AdditionalSearchTerms = 'sharepoint, archive, log, history, audit';
     Editable = false;
     InsertAllowed = false;
     ModifyAllowed = false;

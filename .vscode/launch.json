@@ -8,7 +8,7 @@
       "environmentType": "Sandbox",
       "environmentName": "June9",
       "tenant": "19f16416-6c91-4c4b-8d75-43a20b8e8f13",
-      "startupObjectId": 22,
+      "startupObjectId": 50140,
       "startupObjectType": "Page",
       "breakOnError": "All",
       "launchBrowser": true,

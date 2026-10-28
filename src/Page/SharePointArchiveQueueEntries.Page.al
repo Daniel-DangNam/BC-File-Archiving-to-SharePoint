@@ -1,9 +1,9 @@
 namespace APSS.FileArchiving;
 
-page 50141 "Archive Queue Entries"
+page 50141 "SharePoint Archive Queue Entries"
 {
     PageType = List;
-    ApplicationArea = All;
+    ApplicationArea = Basic, Suite;
     UsageCategory = Lists;
     SourceTable = "Archive Queue Entry";
     SourceTableView = sorting("Entry No.") order(descending);
@@ -197,7 +197,7 @@ page 50141 "Archive Queue Entries"
                 trigger OnAction()
                 var
                     AuditLog: Record "Archive Audit Log";
-                    AuditLogsPage: Page "Archive Audit Logs";
+                    AuditLogsPage: Page "SharePoint Archive Audit Logs";
                 begin
                     AuditLog.SetRange("Queue Entry No.", Rec."Entry No.");
                     AuditLogsPage.SetTableView(AuditLog);
@@ -212,7 +212,7 @@ page 50141 "Archive Queue Entries"
                 ApplicationArea = All;
                 Caption = 'Archive Setup';
                 Image = Setup;
-                RunObject = page "Archive Setup";
+                RunObject = page "SharePoint Archive Setup";
                 ToolTip = 'Opens the SharePoint archive setup configuration page.';
             }
         }
