@@ -14,7 +14,7 @@ permissionset 50140 SPArchivePermSet
         table "Archive Link Mapping" = X,
         tabledata "Archive Link Mapping" = RMID,
         page "SharePoint Archive Setup" = X,
-        page "SharePoint Archive Queue Entries" = X,
+        page "SharePoint Archive Queue" = X,
         page "SharePoint Archive Audit Logs" = X,
         codeunit "Archive Dry-Run Scanner" = X,
         codeunit "SP Archive Graph Client" = X;

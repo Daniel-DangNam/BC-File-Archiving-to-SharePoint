@@ -1,6 +1,6 @@
 namespace APSS.FileArchiving;
 
-page 50141 "SharePoint Archive Queue Entries"
+page 50141 "SharePoint Archive Queue"
 {
     PageType = List;
     ApplicationArea = Basic, Suite;

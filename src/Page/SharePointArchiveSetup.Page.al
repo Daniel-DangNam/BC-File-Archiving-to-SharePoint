@@ -153,7 +153,7 @@ page 50140 "SharePoint Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Archive Queue';
                 Image = Archive;
-                RunObject = page "SharePoint Archive Queue Entries";
+                RunObject = page "SharePoint Archive Queue";
                 ToolTip = 'Opens the centralized archive queue to inspect files, statuses, and links.';
             }
             action(OpenAuditLog)
