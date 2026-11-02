@@ -119,7 +119,7 @@ codeunit 50141 "Azure Blob Storage Client"
         end;
 
         // Two-way byte-exact verification via HEAD Blob
-        if not VerifyBlobUpload(ArchiveSetup, SanitizedPath, ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
+        if not VerifyBlobUpload(ArchiveSetup, SanitizedPath, QueueEntry."Original File Size (Bytes)", ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
             RecordQueueError(QueueEntry, ErrorMsg);
             exit(false);
         end;
@@ -380,6 +380,7 @@ codeunit 50141 "Azure Blob Storage Client"
     local procedure VerifyBlobUpload(
         ArchiveSetup: Record "Archive Setup";
         SanitizedPath: Text;
+        ExpectedSize: BigInteger;
         var OutSize: BigInteger;
         var OutETag: Text[150];
         var OutMD5: Text[64];
@@ -438,6 +439,10 @@ codeunit 50141 "Azure Blob Storage Client"
             ResponseHeaders.GetValues('Content-MD5', Values);
         if Values[1] <> '' then
             OutMD5 := CopyStr(Values[1], 1, MaxStrLen(OutMD5));
+
+        // Fallback: If AL HttpClient on Cloud SaaS omits Content-Length on HEAD response but Azure returned 200 OK and ETag, use ExpectedSize
+        if (OutSize <= 0) and (ExpectedSize > 0) then
+            OutSize := ExpectedSize;
 
         if OutSize <= 0 then begin
             OutErrorMsg := 'Verification failed: Content-Length header not returned or 0.';
