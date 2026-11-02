@@ -72,13 +72,16 @@ pageextension 50140 "Doc Attachment Details Ext" extends "Document Attachment De
         if not IsolatedStorage.Get('BLOB_ARCHIVE_SAS_TOKEN', DataScope::Company, SasToken) then
             exit(LinkMapping."Blob Full URL");
 
+        while (SasToken <> '') and ((SasToken[1] = '?') or (SasToken[1] = '&')) do
+            SasToken := CopyStr(SasToken, 2);
+
         if SasToken = '' then
             exit(LinkMapping."Blob Full URL");
 
-        if not SasToken.StartsWith('?') then
-            SasToken := '?' + SasToken;
+        if LinkMapping."Blob Full URL".Contains('?') then
+            exit(LinkMapping."Blob Full URL" + '&' + SasToken);
 
-        exit(LinkMapping."Blob Full URL" + SasToken);
+        exit(LinkMapping."Blob Full URL" + '?' + SasToken);
     end;
 
     var

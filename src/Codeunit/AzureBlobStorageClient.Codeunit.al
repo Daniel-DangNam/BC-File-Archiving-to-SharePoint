@@ -11,10 +11,9 @@ codeunit 50141 "Azure Blob Storage Client"
     var
         SasTokenStorageKeyLbl: Label 'BLOB_ARCHIVE_SAS_TOKEN', Locked = true;
         BlobItemUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3', Locked = true, Comment = '%1 = Storage Account, %2 = Container, %3 = Path';
-        BlobItemWithSasLbl: Label 'https://%1.blob.core.windows.net/%2/%3%4', Locked = true;
-        BlockUploadUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=block&blockid=%4%5', Locked = true;
-        BlockListUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=blocklist%4', Locked = true;
-        ContainerTestUrlLbl: Label 'https://%1.blob.core.windows.net/%2?restype=container%3', Locked = true;
+        BlockUploadUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=block&blockid=%4', Locked = true;
+        BlockListUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=blocklist', Locked = true;
+        ContainerTestUrlLbl: Label 'https://%1.blob.core.windows.net/%2?restype=container', Locked = true;
         ApiVersionLbl: Label '2023-11-03', Locked = true;
         SetupNotConfiguredErr: Label 'Azure Blob Archive Setup is not configured. Please fill in Storage Account Name, Container Name, and SAS Token.';
         SizeMismatchErr: Label 'Size verification mismatch! Local size: %1 bytes, Azure Blob size: %2 bytes.', Comment = '%1 = Local size, %2 = Azure Blob size';
@@ -35,7 +34,6 @@ codeunit 50141 "Azure Blob Storage Client"
         Url: Text;
         ResponseText: Text;
         SasToken: Text;
-        SasSuffix: Text;
     begin
         if (ArchiveSetup."Storage Account Name" = '') or (ArchiveSetup."Container Name" = '') then
             Error(SetupNotConfiguredErr);
@@ -43,9 +41,8 @@ codeunit 50141 "Azure Blob Storage Client"
         if not GetSasToken(SasToken) then
             Error(SetupNotConfiguredErr);
 
-        SasSuffix := NormalizeSasToken(SasToken);
-
-        Url := StrSubstNo(ContainerTestUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SasSuffix);
+        Url := StrSubstNo(ContainerTestUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name");
+        Url := AppendSasToken(Url, SasToken);
         Request.SetRequestUri(Url);
         Request.Method := 'GET';
         Request.GetHeaders(Headers);
@@ -187,7 +184,6 @@ codeunit 50141 "Azure Blob Storage Client"
         Content: HttpContent;
         Url: Text;
         SasToken: Text;
-        SasSuffix: Text;
         TierName: Text;
         ResponseHeaders: HttpHeaders;
         ContentHeaders: HttpHeaders;
@@ -196,9 +192,8 @@ codeunit 50141 "Azure Blob Storage Client"
         if not GetSasToken(SasToken) then
             exit(false);
 
-        SasSuffix := NormalizeSasToken(SasToken);
-        Url := StrSubstNo(BlobItemWithSasLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, SasSuffix);
         OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
+        Url := AppendSasToken(OutFullUrl, SasToken);
 
         Request.SetRequestUri(Url);
         Request.Method := 'PUT';
@@ -249,7 +244,6 @@ codeunit 50141 "Azure Blob Storage Client"
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
         SasToken: Text;
-        SasSuffix: Text;
         BlockIdBase64: Text;
         BlockUrl: Text;
         BlockListUrl: Text;
@@ -264,7 +258,6 @@ codeunit 50141 "Azure Blob Storage Client"
         if not GetSasToken(SasToken) then
             exit(false);
 
-        SasSuffix := NormalizeSasToken(SasToken);
         OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
 
         ChunkSizeBytes := ArchiveSetup."Chunk Size (MB)" * 1048576;
@@ -289,7 +282,8 @@ codeunit 50141 "Azure Blob Storage Client"
             CopyStream(ChunkOutStream, FileInStream, CurrentChunkSize);
             TempBlob.CreateInStream(ChunkInStream);
 
-            BlockUrl := StrSubstNo(BlockUploadUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, BlockIdBase64, SasSuffix);
+            BlockUrl := StrSubstNo(BlockUploadUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, BlockIdBase64);
+            BlockUrl := AppendSasToken(BlockUrl, SasToken);
 
             Clear(Client);
             Clear(Request);
@@ -315,7 +309,8 @@ codeunit 50141 "Azure Blob Storage Client"
         BlockListXml += '</BlockList>';
 
         // Commit Block List
-        BlockListUrl := StrSubstNo(BlockListUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, SasSuffix);
+        BlockListUrl := StrSubstNo(BlockListUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath);
+        BlockListUrl := AppendSasToken(BlockListUrl, SasToken);
         Clear(Client);
         Clear(Request);
         Request.SetRequestUri(BlockListUrl);
@@ -359,14 +354,13 @@ codeunit 50141 "Azure Blob Storage Client"
         ContentHeaders: HttpHeaders;
         Url: Text;
         SasToken: Text;
-        SasSuffix: Text;
         Values: array[1] of Text;
     begin
         if not GetSasToken(SasToken) then
             exit(false);
 
-        SasSuffix := NormalizeSasToken(SasToken);
-        Url := StrSubstNo(BlobItemWithSasLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, SasSuffix);
+        Url := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath);
+        Url := AppendSasToken(Url, SasToken);
 
         Request.SetRequestUri(Url);
         Request.Method := 'HEAD';
@@ -397,7 +391,7 @@ codeunit 50141 "Azure Blob Storage Client"
     var
         ArchiveSetup: Record "Archive Setup";
         SasToken: Text;
-        SasSuffix: Text;
+        Url: Text;
     begin
         if not ArchiveSetup.Get() then
             exit('');
@@ -405,8 +399,8 @@ codeunit 50141 "Azure Blob Storage Client"
         if not GetSasToken(SasToken) then
             exit(QueueEntry."Blob Full URL");
 
-        SasSuffix := NormalizeSasToken(SasToken);
-        exit(StrSubstNo(BlobItemWithSasLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", QueueEntry."Blob Relative Path", SasSuffix));
+        Url := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", QueueEntry."Blob Relative Path");
+        exit(AppendSasToken(Url, SasToken));
     end;
 
     procedure SetSasToken(SasToken: Text)
@@ -428,13 +422,33 @@ codeunit 50141 "Azure Blob Storage Client"
         exit(IsolatedStorage.Get(SasTokenStorageKeyLbl, DataScope::Company, OutSasToken));
     end;
 
-    local procedure NormalizeSasToken(SasToken: Text): Text
+    local procedure AppendSasToken(BaseUrl: Text; SasToken: Text): Text
+    var
+        CleanToken: Text;
     begin
-        if SasToken = '' then
-            exit('');
-        if not SasToken.StartsWith('?') then
-            SasToken := '?' + SasToken;
+        CleanToken := CleanSasToken(SasToken);
+        if CleanToken = '' then
+            exit(BaseUrl);
+        if BaseUrl.Contains('?') then
+            exit(BaseUrl + '&' + CleanToken);
+        exit(BaseUrl + '?' + CleanToken);
+    end;
+
+    local procedure CleanSasToken(SasToken: Text): Text
+    begin
+        while (SasToken <> '') and ((SasToken[1] = '?') or (SasToken[1] = '&')) do
+            SasToken := CopyStr(SasToken, 2);
         exit(SasToken);
+    end;
+
+    local procedure NormalizeSasToken(SasToken: Text): Text
+    var
+        CleanToken: Text;
+    begin
+        CleanToken := CleanSasToken(SasToken);
+        if CleanToken = '' then
+            exit('');
+        exit('?' + CleanToken);
     end;
 
     local procedure GetSourceFileInStream(QueueEntry: Record "Archive Queue Entry"; var OutStream: InStream): Boolean
