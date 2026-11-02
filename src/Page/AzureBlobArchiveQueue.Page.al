@@ -1,14 +1,14 @@
 namespace APSS.FileArchiving;
 
-page 50141 "SharePoint Archive Queue"
+page 50141 "Azure Blob Archive Queue"
 {
     PageType = List;
     ApplicationArea = Basic, Suite;
     UsageCategory = Lists;
     SourceTable = "Archive Queue Entry";
     SourceTableView = sorting("Entry No.") order(descending);
-    Caption = 'SharePoint Archive Queue Entries';
-    AdditionalSearchTerms = 'sharepoint, archive, queue, storage';
+    Caption = 'Azure Blob Archive Queue Entries';
+    AdditionalSearchTerms = 'azure, blob, archive, queue, storage';
     Editable = false;
     InsertAllowed = false;
     ModifyAllowed = false;
@@ -60,6 +60,16 @@ page 50141 "SharePoint Archive Queue"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the exact size of the binary file in bytes.';
                 }
+                field("Evaluated Date Field"; Rec."Evaluated Date Field")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the date field evaluated for cut-off eligibility.';
+                }
+                field("Evaluated Date Value"; Rec."Evaluated Date Value")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the evaluated date value of the source document.';
+                }
                 field("Archive Status"; Rec."Archive Status")
                 {
                     ApplicationArea = All;
@@ -80,16 +90,26 @@ page 50141 "SharePoint Archive Queue"
                     ApplicationArea = All;
                     ToolTip = 'Indicates if this record was generated as part of a preview / dry run execution.';
                 }
-                field("SharePoint Web URL"; Rec."SharePoint Web URL")
+                field("Blob Relative Path"; Rec."Blob Relative Path")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the virtual relative path in the Azure Blob Container.';
+                }
+                field("Blob Full URL"; Rec."Blob Full URL")
                 {
                     ApplicationArea = All;
                     ExtendedDatatype = URL;
-                    ToolTip = 'Specifies the web URL to open the archived file on SharePoint Online.';
+                    ToolTip = 'Specifies the permanent URL of the archived file in Azure Blob Storage.';
                 }
-                field("SharePoint Item ID"; Rec."SharePoint Item ID")
+                field("Blob ETag"; Rec."Blob ETag")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the SharePoint Drive Item ID assigned by Graph API.';
+                    ToolTip = 'Specifies the ETag version returned by Azure Blob Storage.';
+                }
+                field("Blob Content MD5"; Rec."Blob Content MD5")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the Content-MD5 hash of the blob.';
                 }
                 field("Retry Count"; Rec."Retry Count")
                 {
@@ -109,7 +129,7 @@ page 50141 "SharePoint Archive Queue"
                 field("Uploaded DateTime"; Rec."Uploaded DateTime")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the date and time when the upload to SharePoint completed.';
+                    ToolTip = 'Specifies the date and time when the upload to Azure Blob completed.';
                 }
                 field("Verified DateTime"; Rec."Verified DateTime")
                 {
@@ -141,18 +161,18 @@ page 50141 "SharePoint Archive Queue"
                     CurrPage.Update(false);
                 end;
             }
-            action(UploadToSharePoint)
+            action(UploadToBlob)
             {
                 ApplicationArea = All;
                 Caption = 'Upload Selected';
                 Image = Cloud;
-                ToolTip = 'Uploads and verifies the currently selected queue entry to SharePoint Online.';
+                ToolTip = 'Uploads and verifies the currently selected queue entry to Azure Blob Storage.';
 
                 trigger OnAction()
                 var
-                    GraphClient: Codeunit "SP Archive Graph Client";
+                    BlobClient: Codeunit "Azure Blob Storage Client";
                 begin
-                    GraphClient.ProcessQueueEntry(Rec);
+                    BlobClient.ProcessQueueEntry(Rec);
                     CurrPage.Update(false);
                 end;
             }
@@ -166,25 +186,29 @@ page 50141 "SharePoint Archive Queue"
                 trigger OnAction()
                 var
                     ArchiveSetup: Record "Archive Setup";
-                    GraphClient: Codeunit "SP Archive Graph Client";
+                    BlobClient: Codeunit "Azure Blob Storage Client";
                 begin
                     ArchiveSetup.Get();
-                    GraphClient.ProcessPendingQueueEntries(ArchiveSetup."Batch Size");
+                    BlobClient.ProcessPendingQueueEntries(ArchiveSetup."Batch Size");
                     CurrPage.Update(false);
                 end;
             }
-            action(OpenInSharePoint)
+            action(OpenInBlob)
             {
                 ApplicationArea = All;
-                Caption = 'Open in SharePoint';
+                Caption = 'Open in Azure Blob';
                 Image = Web;
-                ToolTip = 'Opens the archived document directly in SharePoint Online.';
-                Enabled = Rec."SharePoint Web URL" <> '';
+                ToolTip = 'Opens the archived document via a secure temporary SAS URL.';
+                Enabled = Rec."Blob Full URL" <> '';
 
                 trigger OnAction()
+                var
+                    BlobClient: Codeunit "Azure Blob Storage Client";
+                    ViewUrl: Text;
                 begin
-                    if Rec."SharePoint Web URL" <> '' then
-                        Hyperlink(Rec."SharePoint Web URL");
+                    ViewUrl := BlobClient.GenerateTemporaryViewUrl(Rec);
+                    if ViewUrl <> '' then
+                        Hyperlink(ViewUrl);
                 end;
             }
             action(ViewAuditLog)
@@ -197,7 +221,7 @@ page 50141 "SharePoint Archive Queue"
                 trigger OnAction()
                 var
                     AuditLog: Record "Archive Audit Log";
-                    AuditLogsPage: Page "SharePoint Archive Audit Logs";
+                    AuditLogsPage: Page "Azure Blob Archive Audit Logs";
                 begin
                     AuditLog.SetRange("Queue Entry No.", Rec."Entry No.");
                     AuditLogsPage.SetTableView(AuditLog);
@@ -212,8 +236,8 @@ page 50141 "SharePoint Archive Queue"
                 ApplicationArea = All;
                 Caption = 'Archive Setup';
                 Image = Setup;
-                RunObject = page "SharePoint Archive Setup";
-                ToolTip = 'Opens the SharePoint archive setup configuration page.';
+                RunObject = page "Azure Blob Archive Setup";
+                ToolTip = 'Opens the Azure Blob archive setup configuration page.';
             }
         }
         area(Promoted)
@@ -225,13 +249,13 @@ page 50141 "SharePoint Archive Queue"
                 actionref(RunDryRun_Promoted; RunDryRun)
                 {
                 }
-                actionref(UploadToSharePoint_Promoted; UploadToSharePoint)
+                actionref(UploadToBlob_Promoted; UploadToBlob)
                 {
                 }
                 actionref(ProcessBatch_Promoted; ProcessBatch)
                 {
                 }
-                actionref(OpenInSharePoint_Promoted; OpenInSharePoint)
+                actionref(OpenInBlob_Promoted; OpenInBlob)
                 {
                 }
                 actionref(ViewAuditLog_Promoted; ViewAuditLog)

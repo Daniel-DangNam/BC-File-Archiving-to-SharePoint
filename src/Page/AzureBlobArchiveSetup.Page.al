@@ -1,13 +1,13 @@
 namespace APSS.FileArchiving;
 
-page 50140 "SharePoint Archive Setup"
+page 50140 "Azure Blob Archive Setup"
 {
     PageType = Card;
     ApplicationArea = Basic, Suite;
     UsageCategory = Administration;
     SourceTable = "Archive Setup";
-    Caption = 'SharePoint Archive Setup';
-    AdditionalSearchTerms = 'sharepoint, archive, setup, storage';
+    Caption = 'Azure Blob Archive Setup';
+    AdditionalSearchTerms = 'azure, blob, archive, setup, storage';
     InsertAllowed = false;
     DeleteAllowed = false;
 
@@ -17,66 +17,63 @@ page 50140 "SharePoint Archive Setup"
         {
             group(General)
             {
-                Caption = 'Microsoft Entra ID Connection';
+                Caption = 'Azure Storage Account Connection';
 
-                field("Tenant ID"; Rec."Tenant ID")
+                field("Storage Account Name"; Rec."Storage Account Name")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the Microsoft Entra Directory (Tenant) ID.';
+                    ToolTip = 'Specifies the Azure Storage Account name.';
                 }
-                field("Client ID"; Rec."Client ID")
+                field("Container Name"; Rec."Container Name")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the App Registration Client (Application) ID.';
+                    ToolTip = 'Specifies the Azure Blob Container name for archiving.';
                 }
-                field(ClientSecret; ClientSecretVar)
+                field(SasToken; SasTokenVar)
                 {
                     ApplicationArea = All;
-                    Caption = 'Client Secret';
+                    Caption = 'SAS Token';
                     ExtendedDatatype = Masked;
-                    ToolTip = 'Specifies the Client Secret for Graph API authentication. The value is stored securely in IsolatedStorage.';
+                    ToolTip = 'Specifies the Shared Access Signature (SAS) Token for Azure Blob authentication. Stored securely in IsolatedStorage.';
 
                     trigger OnValidate()
+                    var
+                        BlobClient: Codeunit "Azure Blob Storage Client";
                     begin
-                        SaveClientSecret();
+                        if SasTokenVar = '' then
+                            BlobClient.SetSasToken('')
+                        else
+                            if SasTokenVar <> '********' then
+                                BlobClient.SetSasToken(SasTokenVar);
+                        CurrPage.Update(false);
                     end;
                 }
                 field("Is Configured"; Rec."Is Configured")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Indicates if the connection settings have been validated.';
+                    Editable = false;
+                    ToolTip = 'Indicates if the connection settings have been validated successfully.';
                 }
             }
 
-            group(SharePoint)
+            group(StoragePolicy)
             {
-                Caption = 'SharePoint Storage Target';
+                Caption = 'Storage & Archiving Policy';
 
-                field("SharePoint Site ID"; Rec."SharePoint Site ID")
-                {
-                    ApplicationArea = All;
-                    ToolTip = 'Specifies the Microsoft Graph SharePoint Site ID.';
-                }
-                field("SharePoint Drive ID"; Rec."SharePoint Drive ID")
-                {
-                    ApplicationArea = All;
-                    ToolTip = 'Specifies the SharePoint Document Library Drive ID.';
-                }
                 field("Base Folder Path"; Rec."Base Folder Path")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the base folder path inside the document library.';
+                    ToolTip = 'Specifies the base virtual folder path inside the container.';
                 }
-            }
-
-            group(ArchivingPolicy)
-            {
-                Caption = 'Archiving & Upload Policy';
-
+                field("Default Access Tier"; Rec."Default Access Tier")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies the default Azure Blob tier upon upload (Cool, Hot, Cold, Archive).';
+                }
                 field("Cut-Off Date Rule"; Rec."Cut-Off Date Rule")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the date field used to evaluate eligibility for archiving (Posting Date, Document Date, or Attached Date).';
+                    ToolTip = 'Specifies the admin evaluation date rule for eligibility (Posting Date or Document Date).';
                 }
                 field("Batch Size"; Rec."Batch Size")
                 {
@@ -86,7 +83,7 @@ page 50140 "SharePoint Archive Setup"
                 field("Chunk Size (MB)"; Rec."Chunk Size (MB)")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the chunk size in megabytes for resumable upload sessions (4-60 MB).';
+                    ToolTip = 'Specifies the block chunk size in megabytes for upload (1-100 MB).';
                 }
             }
 
@@ -109,6 +106,17 @@ page 50140 "SharePoint Archive Setup"
                     ApplicationArea = All;
                     ToolTip = 'Specifies the number of days after which an approved batch expires and requires re-verification.';
                 }
+                field("WORM Policy Enabled"; Rec."WORM Policy Enabled")
+                {
+                    ApplicationArea = All;
+                    ToolTip = 'Specifies if WORM / Immutability policy is enabled on the container. Must remain configurable and unlocked during PoC.';
+                }
+                field("WORM Policy Locked"; Rec."WORM Policy Locked")
+                {
+                    ApplicationArea = All;
+                    Editable = false;
+                    ToolTip = 'Specifies if the WORM policy has been permanently locked on Azure Storage. Irreversible once locked.';
+                }
             }
         }
     }
@@ -122,13 +130,13 @@ page 50140 "SharePoint Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Test Connection';
                 Image = Link;
-                ToolTip = 'Validates the Microsoft Entra ID authentication and verifies that the specified SharePoint Drive exists and is accessible.';
+                ToolTip = 'Validates Azure Blob Storage authentication and verifies that the container exists and is accessible.';
 
                 trigger OnAction()
                 var
-                    GraphClient: Codeunit "SP Archive Graph Client";
+                    BlobClient: Codeunit "Azure Blob Storage Client";
                 begin
-                    GraphClient.TestConnection(Rec);
+                    BlobClient.TestConnection(Rec);
                 end;
             }
             action(RunDryRun)
@@ -153,7 +161,7 @@ page 50140 "SharePoint Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Archive Queue';
                 Image = Archive;
-                RunObject = page "SharePoint Archive Queue";
+                RunObject = page "Azure Blob Archive Queue";
                 ToolTip = 'Opens the centralized archive queue to inspect files, statuses, and links.';
             }
             action(OpenAuditLog)
@@ -161,7 +169,7 @@ page 50140 "SharePoint Archive Setup"
                 ApplicationArea = All;
                 Caption = 'Audit Log';
                 Image = Log;
-                RunObject = page "SharePoint Archive Audit Logs";
+                RunObject = page "Azure Blob Archive Audit Logs";
                 ToolTip = 'Opens the immutable audit log for all archiving actions.';
             }
         }
@@ -193,11 +201,15 @@ page 50140 "SharePoint Archive Setup"
     }
 
     trigger OnOpenPage()
+    var
+        BlobClient: Codeunit "Azure Blob Storage Client";
     begin
         Rec.Reset();
         if not Rec.Get() then begin
             Rec.Init();
             Rec."Primary Key" := '';
+            Rec."Default Access Tier" := Rec."Default Access Tier"::Cool;
+            Rec."Cut-Off Date Rule" := Rec."Cut-Off Date Rule"::"Posting Date";
             Rec."Batch Size" := 50;
             Rec."Chunk Size (MB)" := 4;
             Rec."Require Secondary Approval" := true;
@@ -205,28 +217,12 @@ page 50140 "SharePoint Archive Setup"
             Rec.Insert(true);
         end;
 
-        LoadClientSecret();
+        if BlobClient.HasSasToken() then
+            SasTokenVar := '********'
+        else
+            SasTokenVar := '';
     end;
 
     var
-        ClientSecretVar: Text;
-        SecretKeyLbl: Label 'SP_ARCHIVE_CLIENT_SECRET', Locked = true;
-
-    local procedure LoadClientSecret()
-    begin
-        if IsolatedStorage.Contains(SecretKeyLbl, DataScope::Company) then
-            ClientSecretVar := '********'
-        else
-            ClientSecretVar := '';
-    end;
-
-    local procedure SaveClientSecret()
-    begin
-        if ClientSecretVar = '' then begin
-            if IsolatedStorage.Contains(SecretKeyLbl, DataScope::Company) then
-                IsolatedStorage.Delete(SecretKeyLbl, DataScope::Company);
-        end else
-            if ClientSecretVar <> '********' then
-                IsolatedStorage.Set(SecretKeyLbl, ClientSecretVar, DataScope::Company);
-    end;
+        SasTokenVar: Text;
 }

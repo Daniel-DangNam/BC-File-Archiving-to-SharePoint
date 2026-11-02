@@ -1,14 +1,14 @@
 namespace APSS.FileArchiving;
 
-page 50142 "SharePoint Archive Audit Logs"
+page 50142 "Azure Blob Archive Audit Logs"
 {
     PageType = List;
     ApplicationArea = Basic, Suite;
     UsageCategory = History;
     SourceTable = "Archive Audit Log";
     SourceTableView = sorting("Log Entry No.") order(descending);
-    Caption = 'SharePoint Archive Audit Logs';
-    AdditionalSearchTerms = 'sharepoint, archive, log, history, audit';
+    Caption = 'Azure Blob Archive Audit Logs';
+    AdditionalSearchTerms = 'azure, blob, archive, log, history, audit';
     Editable = false;
     InsertAllowed = false;
     ModifyAllowed = false;
@@ -68,7 +68,7 @@ page 50142 "SharePoint Archive Audit Logs"
                 field("Verification Proof"; Rec."Verification Proof")
                 {
                     ApplicationArea = All;
-                    ToolTip = 'Specifies the technical verification proof (Drive Item ID, size, hash, ETag).';
+                    ToolTip = 'Specifies the technical verification proof (ETag, size, Content-MD5).';
                 }
             }
         }
