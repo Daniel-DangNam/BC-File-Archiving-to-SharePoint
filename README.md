@@ -1,20 +1,22 @@
-# Business Central File Archiving to SharePoint
+# Business Central File Archiving to Azure Blob Storage
 
-> **AL Extension độc lập dành cho Microsoft Dynamics 365 Business Central (Cloud SaaS)**  
-> Giải pháp di dời và lưu trữ tệp đính kèm cũ sang Microsoft SharePoint Online nhằm giảm dung lượng cơ sở dữ liệu, duy trì khả năng truy vết và mở tệp trực tiếp từ BC.
+> **AL Extension độc lập dành cho Microsoft Dynamics 365 Business Central (Cloud SaaS v28)**  
+> Giải pháp di dời và lưu trữ tệp đính kèm sang **Azure Blob Storage (ABS)** nhằm giải phóng triệt để dung lượng cơ sở dữ liệu, tối ưu chi phí lưu trữ (>95–99.5%), loại bỏ giới hạn quota và duy trì khả năng mở tệp trực tiếp từ BC.  
+> *(Ghi chú kiến trúc: Toàn bộ thiết kế kỹ thuật của phương án SharePoint Online trước đó vẫn được lưu giữ đầy đủ để tham chiếu).*
 
 ---
 
-## 📌 1. Mục tiêu Dự án (Objective)
+## 📌 1. Mục tiêu Dự án (Objective) & Quyết định Chuyển đổi Nền tảng
 
 Hệ thống Business Central hiện đang sử dụng **218.45 GB / 110 GB** dung lượng cấp phát (vượt quá 198%), trong đó:
 * **Tenant Media:** Chiếm ~**83.4 GB** (191,199 records).
 * **Incoming Document Attachments:** Chiếm ~**8 GB** (~38,200 records giữa APSS-SG và Test SG08).
 
-**Mục tiêu chính:**
-1. Di dời nội dung nhị phân (binary content) của các tệp đính kèm cũ hơn ngày cut-off do người dùng nhập sang SharePoint Online.
-2. Lưu giữ liên kết SharePoint (SharePoint URL) và lịch sử kiểm toán trong BC để người dùng vẫn mở và tra cứu tệp bình thường.
-3. Giải phóng an toàn dung lượng lưu trữ của BC mà không làm đứt gãy tham chiếu hoặc ảnh hưởng đến chứng từ kế toán.
+### Quyết định Lựa chọn Nền tảng Lưu trữ (Azure Blob Storage)
+Sau khi đánh giá toàn diện bài toán kinh tế và hạn mức kỹ thuật (Quota):
+1. **Chi phí:** Giá mua thêm dung lượng SharePoint Online rất cao (~**\$0.20 / GB / tháng** $\rightarrow$ \$200/TB/tháng). Trong khi đó, **Azure Blob Storage Cool Tier** chỉ ~**\$0.010 / GB / tháng** và **Archive Tier** chỉ ~**\$0.00099 / GB / tháng** (tiết kiệm hơn **96% - 99.5%** chi phí dài hạn).
+2. **Hạn mức & Băng thông:** SharePoint giới hạn 1 TB + 10 GB/user và ngưỡng 5,000 items/view, đồng thời Graph API dễ bị bóp băng thông (HTTP 429 Throttling) khi chạy Job Queue ban đêm. Azure Blob Storage hỗ trợ tới **5 Petabytes** và băng thông lên đến 60 Gbps.
+3. **Tích hợp Native:** Business Central v28 tích hợp sẵn module chuẩn **`Azure Blob Storage Services API`** (System Application), giúp kết nối ổn định, trực tiếp và bảo mật cao mà không phụ thuộc thư viện ngoài.
 
 ---
 
@@ -22,7 +24,7 @@ Hệ thống Business Central hiện đang sử dụng **218.45 GB / 110 GB** du
 
 * **TUYỆT ĐỐI KHÔNG can thiệp trực tiếp vào `Tenant Media` hay dùng Direct SQL:**
   * Việc xóa trực tiếp `Tenant Media` sẽ phá vỡ cơ chế đếm tham chiếu (Reference Counting) của BC và gây lỗi gãy liên kết (Broken Reference) trên các chứng từ dùng chung Media (ví dụ khi post Sales Order $\rightarrow$ Posted Sales Invoice).
-  * Việc xóa nội dung phải thông qua record và API chuẩn của BC (`Remove()` trên trường `Media` của Table 1173 hoặc `Clear(Content)` của Table 133).
+  * Việc xóa nội dung phải thông qua record và API chuẩn của BC (`Clear(Document Reference ID)` trên Table 1173 hoặc `Clear(Content)` của Table 133 kết hợp `Modify(false)`).
 * **Phạm vi nghiêm cấm can thiệp (Strict Exclusions):**
   * `Sales Header Archive` / `Sales Line Archive` (Table 5107, 5108)
   * `Purchase Header Archive` / `Purchase Line Archive` (Table 5109, 5110)
@@ -32,76 +34,79 @@ Hệ thống Business Central hiện đang sử dụng **218.45 GB / 110 GB** du
 * **Độc lập và an toàn:**
   * Đóng gói thành **AL Extension độc lập**, không sửa đổi mã nguồn Production của APSS.
   * Tách rời **2 pha: Upload vs. Purge**. Bắt buộc có phê duyệt lần 2 (Secondary Approval) trước khi giải phóng nội dung nhị phân trên BC.
+* **KHÓA CỨNG TÍNH NĂNG PURGE (HARD-LOCK GATEKEEPER):** Toàn bộ chức năng Purge tiếp tục bị khóa cứng trên cả giao diện và codeunit cho đến khi vượt qua các chốt chặn kiểm nghiệm thực tế trên Sandbox.
+* **Nguyên tắc Quản trị WORM (Immutability Policy):**
+  * Chính sách WORM trên Azure Blob Storage bắt buộc phải để **Configurable**.
+  * **PoC chỉ sử dụng Unlocked policy**, tuyệt đối CHƯA LOCK trên Production cho đến khi Finance/Legal chính thức phê duyệt thời hạn lưu trữ (retention period), date basis và quy trình xử lý file upload nhầm / duplicate.
 
 ---
 
-## 🏗️ 3. Kiến trúc & Quy trình 2 Pha
+## 🏗️ 3. Kiến trúc & Quy trình Vận hành
 
-### 3.1. Cấu trúc thư mục SharePoint
-$$\mathbf{\text{[SharePoint Library]}} \;/\; \mathbf{\text{[Company Name]}} \;/\; \mathbf{\text{[Document Type]}} \;/\; \mathbf{\text{[Document No.]}} \;/\; \mathbf{\text{[File Name]}}$$
-* *Chống trùng lặp:* Tự động gán hậu tố `_[LineNo]` hoặc `_[SystemId_Short]` nếu một chứng từ có nhiều file cùng tên.
-* *Làm sạch đường dẫn (Sanitization):* Loại bỏ ký tự cấm của SharePoint (`~ " # % & * : < > ? / \ { | }`), xử lý dấu chấm và khoảng trắng cuối tên, đảm bảo URL $\le 400$ ký tự.
+### 3.1. Cấu trúc Đường dẫn Azure Blob (Virtual Hierarchy)
+$$\mathbf{\text{[Container Name]}} \;/\; \mathbf{\text{[Base Folder Path]}} \;/\; \mathbf{\text{[Company Name]}} \;/\; \mathbf{\text{[Document Type]}} \;/\; \mathbf{\text{[Document No.]}} \;/\; \mathbf{\text{[File Name]}}$$
+* *Chống trùng lặp:* Cấp mã băm `Deterministic Archive Key` (SHA-256) cho từng bản ghi hàng đợi.
+* *Làm sạch đường dẫn (Sanitization):* Loại bỏ ký tự cấm, khử chuỗi `../` (Path Traversal), khống chế URL $\le 1024$ ký tự.
 
-### 3.2. Quy trình xử lý
+### 3.2. Quy tắc Cut-Off Date & Đánh giá Ngày Chứng từ (Strict Audit & No-Fallback)
+* **Phân định thẩm quyền:**
+  * **Admin:** Cấu hình quy tắc ngày (`Date Basis`: Posting Date vs Document Date) cố định theo từng `Document Type` trong Setup.
+  * **End-user:** Chỉ nhập duy nhất mốc ngày **`Cut-off Date`** (không tự ý chọn field ngày để đảm bảo tính nhất quán và kiểm toán).
+* **Quy tắc Strict No-Fallback:** Nếu chứng từ bị trống ngày quy định $\rightarrow$ **Skip ngay lập tức, ghi log warning**, tuyệt đối không tự ý fallback sang trường ngày khác (như Attached Date).
+* **Minh bạch kiểm toán:** Màn hình Preview và Audit Log lưu vết rõ ràng `Evaluated Date Field` và `Evaluated Date Value`.
+
+### 3.3. Quy trình Xử lý Bất đồng bộ 2 Pha
 ```mermaid
 flowchart TD
-    A["End User nhập Cut-Off Date"] --> B["Preview / Dry Run (Xem trước danh sách & dung lượng)"]
-    B --> C["Tạo Archive Queue (Trạng thái: Pending Upload)"]
-    C --> D["Job Queue Upload qua Microsoft Graph API"]
-    D --> E["ĐỐI SOÁT KÉP: Khớp 100% File Size + Checksum Hash"]
-    E -->|Thành công| F["Lưu SharePoint Link vào BC (File gốc trong BC còn nguyên 100%)"]
-    F --> G["Phê duyệt cấp 2 (Secondary Approval for Purge)"]
-    G --> H["Re-verify file trên SharePoint -> Giải phóng Binary Content trên BC"]
+    A["End User nhập Cut-Off Date"] --> B["Preview / Dry Run (Admin Date Basis, Skip empty date)"]
+    B --> C["Tạo Blob Archive Queue (Trạng thái: Draft / Pending Upload)"]
+    C --> D["Job Queue Upload: Block Blob (Put Block 4MB + Put Block List)"]
+    D --> E["ĐỐI SOÁT KÉP: Khớp 100% File Size + Content-MD5 / ETag"]
+    E -->|Thành công| F["Lưu Blob Relative Path & Mapping vào BC (File gốc trong BC còn nguyên 100%)"]
+    F --> G["Phê duyệt cấp 2 (Secondary Approval for Purge - Role Restricted)"]
+    G --> H["Re-verify tệp trên Azure Blob -> Gọi API chuẩn giải phóng Binary Content trên BC"]
 ```
 
-### 3.3. Bảo mật theo Đặc quyền Tối thiểu (Least Privilege)
-* Không dùng quyền diện rộng `Files.ReadWrite.All`.
-* Ứng dụng Entra ID sử dụng quyền Application **`Sites.Selected`** và chỉ được cấp quyền ghi (`write`) trên đúng 1 SharePoint Site Collection chỉ định làm Archive.
-* Toàn bộ Secret/Certificate được bảo mật bằng **`IsolatedStorage`** của AL, tuyệt đối không lưu plain text trong table.
+### 3.4. Bảo mật & Truy cập Tệp (Private Container & Short-Lived SAS Token)
+* Container Azure Blob được đóng kín hoàn toàn ở chế độ **Private (No anonymous public access)**.
+* Khi người dùng click `Open from Azure Blob` trên chứng từ BC, hệ thống tự động sinh **Short-Lived Read-only SAS URL (thời hạn 15–30 phút)** rồi mở trên trình duyệt. Hết hạn, link tự hủy, chống hoàn toàn nguy cơ lộ lọt tài liệu ra ngoài.
 
 ---
 
 ## 📁 4. Cấu trúc Thư mục Dự án
 
 ```text
-BC File Archiving to SharePoint/
-├── .alpackages/               # Các gói symbol chuẩn của Microsoft (Base App, System App)
+BC File Archiving to SharePoint / Azure Blob/
+├── .alpackages/               # Các gói symbol chuẩn của Microsoft (Base App, System App v28)
 ├── .vscode/
 │   ├── extensions.json        # Khuyến nghị extension AL Language
-│   ├── launch.json            # Cấu hình kết nối Sandbox Cloud
+│   ├── launch.json            # Cấu hình Sandbox Cloud (startupObjectId: 50140)
 │   └── settings.json          # Thiết lập CodeCop & PerTenantExtensionCop
 ├── docs/
-│   └── TECHNICAL_DESIGN_AND_DATA_MODEL.md  # Tài liệu Thiết kế Kỹ thuật & Data Model chi tiết
+│   ├── TECHNICAL_DESIGN_AZURE_BLOB.md          # [CHÍNH] Thiết kế Kỹ thuật & Data Model Azure Blob Storage
+│   ├── STORAGE_COMPARISON_SHAREPOINT_VS_AZURE_BLOB.md # So sánh toàn diện TCO, Quota, Security, Hybrid Architecture
+│   ├── TECHNICAL_DESIGN_AND_DATA_MODEL.md      # [THAM CHIẾU] Thiết kế Kỹ thuật SharePoint Online
+│   ├── USER_AND_ADMIN_GUIDE.md                 # Hướng dẫn Vận hành & Từ điển Dữ liệu (User & Admin Guide)
+│   └── TEST_EXECUTION_REPORT.md                # Báo cáo Thực thi Kiểm thử (TC-01 Dry-Run 175 tệp PASSED)
 ├── src/
-│   ├── Codeunit/              # Logic OAuth2, Microsoft Graph API, Chunked Upload, Purge Mgt.
-│   ├── Enum/                  # Trạng thái Archive, Purge, và loại Audit Log
-│   ├── Page/                  # Giao diện Setup, Queue, Preview, Audit Log
-│   ├── PageExtension/         # Mở rộng hiển thị link SharePoint trên các Page chuẩn
+│   ├── Codeunit/              # Logic Dry-Run Scanner, Graph Client, ABS Native Client, Purge Mgt.
+│   ├── Enum/                  # Trạng thái Archive Process, Purge Process, và Audit Action
+│   ├── Page/                  # Giao diện Setup, Queue, Audit Log
+│   ├── PageExtension/         # Mở rộng hiển thị link lưu trữ trên Page 1173, 193, 194
 │   ├── PermissionSet/         # Phân quyền SPArchivePermSet
-│   ├── Report/                # Báo cáo thống kê dung lượng giải phóng
-│   ├── Table/                 # Bảng Setup (50100), Queue (50101), Audit Log (50102), Link Mapping (50103)
-│   └── TableExtension/        # Bổ sung trường kiểm soát an toàn (nếu cần)
-├── app.json                   # Cấu hình AL extension (ID Range: 50100..50149, Platform/App: 28.0)
+│   └── Table/                 # Bảng Setup, Queue Entry, Audit Log, Link Mapping (ID 50140..50189)
+├── app.json                   # Cấu hình AL extension (ID Range: 50140..50189, Platform/App: 28.0)
 └── README.md                  # Hướng dẫn tổng quan dự án
 ```
 
 ---
 
-## 📊 5. Danh mục Hạng mục Công việc (Jira Work Items)
+## 📖 5. Hệ Thống Tài Liệu Kỹ Thuật
 
-| Mã Task | Tên Task | Mức ưu tiên | Trọng tâm công việc |
-| :--- | :--- | :---: | :--- |
-| **KAN-35** | *Measure storage and attachment inventory* | Medium | Thống kê chi tiết số lượng, phân bổ tuổi file và dung lượng có thể thu hồi. |
-| **KAN-31** | *Confirm retention scope and cutoff* | Medium | Chốt quy tắc so khớp ngày cut-off (`Posting Date` vs `Attached Date`). |
-| **KAN-30** | *Design authentication and security* | **High** | Thiết kế Entra ID App, quyền `Sites.Selected`, quản lý credentials qua IsolatedStorage. |
-| **KAN-36** | *Design SharePoint archive structure* | Medium | Chuẩn hóa cấu trúc thư mục, quy tắc sanitize và cơ chế chống trùng file. |
-| **KAN-33** | *Build BC archive setup and migration log* | Medium | Hiện thực 4 bảng: Archive Setup, Queue Entry, Audit Log, Link Mapping. |
-| **KAN-34** | *Implement upload and verification pipeline* | Medium | Xây dựng pipeline tải tệp (Chunked upload >4MB), đối soát size/hash, xử lý retry HTTP 429. |
-| **KAN-29** | *Implement safe retention and purge controls* | Medium | Thiết lập cơ chế kiểm soát phê duyệt lần 2 và gọi API chuẩn giải phóng dung lượng. |
-| **KAN-32** | *Test, deploy and document operations* | Medium | Bộ 8 Test Cases trên Sandbox copy, tài liệu triển khai, vận hành và khôi phục thảm họa. |
-
----
-
-## 📖 6. Tài liệu Kỹ thuật Chi tiết
-Toàn bộ đặc tả mô hình dữ liệu (AL Tables, Enums), quy trình đối soát kép, xử lý Throttling HTTP 429 và Test Plan chi tiết được lưu trữ tại:  
-👉 **[`docs/TECHNICAL_DESIGN_AND_DATA_MODEL.md`](docs/TECHNICAL_DESIGN_AND_DATA_MODEL.md)**
+| Tài liệu | Mô tả | Liên kết |
+| :--- | :--- | :---: |
+| **Thiết Kế Kỹ Thuật Azure Blob** | Đặc tả AL Data Model, Azure Blob REST API, Block Blob, SAS, WORM Policy | [Xem tài liệu](docs/TECHNICAL_DESIGN_AZURE_BLOB.md) |
+| **So Sánh SharePoint vs. Azure Blob** | Phân tích TCO chi phí 5 năm, giới hạn Quota, hiệu năng, mô hình Hybrid | [Xem tài liệu](docs/STORAGE_COMPARISON_SHAREPOINT_VS_AZURE_BLOB.md) |
+| **Thiết Kế Kỹ Thuật SharePoint** | Đặc tả kỹ thuật phương án SharePoint Online (M365 Graph API) | [Xem tài liệu](docs/TECHNICAL_DESIGN_AND_DATA_MODEL.md) |
+| **Hướng Dẫn Quản Trị & Vận Hành** | Giải thích chi tiết toàn bộ field, nút chức năng và từ điển dữ liệu | [Xem tài liệu](docs/USER_AND_ADMIN_GUIDE.md) |
+| **Báo Cáo Kiểm Thử (Test Report)** | Ghi nhận kết quả thực thi kiểm nghiệm thực tế (TC-01 Dry-Run) | [Xem tài liệu](docs/TEST_EXECUTION_REPORT.md) |

@@ -108,11 +108,20 @@ graph TD
 - **Trường chứa tệp nhị phân:** `Content` (kiểu `BLOB`).
 - **Phương thức Purge chuẩn:** `Clear(IncomingDocAttachment.Content)` kết hợp `IncomingDocAttachment.Modify(false)`.
 
-### 3.3. Chiến lược Cut-Off Date
-Hỗ trợ cấu hình linh hoạt:
-- **`Posting Date`** (Ngày ghi sổ): Khuyến nghị cho Kế toán / Tài chính.
-- **`Document Date`** (Ngày chứng từ): Phù hợp cho hồ sơ thương mại.
-- **`Attached Date`** (Ngày đính kèm): Fallback kỹ thuật.
+### 3.3. Chiến lược Cut-Off Date & Đánh Giá Ngày Chứng Từ (Strict Audit & No-Fallback)
+
+Để đảm bảo tính nhất quán (Consistency) và phục vụ công tác thanh tra kiểm toán (Auditability):
+
+1. **Phân định thẩm quyền:**
+   - **End-user KHÔNG được tự ý chọn date field** mỗi lần chạy để tránh việc hôm nay lọc theo Posting Date, ngày mai lọc theo Document Date làm xáo trộn dữ liệu và sai lệch niên độ kế toán. End-user chỉ nhập duy nhất tham số: **`Cut-off Date`**.
+   - **Admin cấu hình Date Basis theo từng Document Type** tại bảng Setup (ví dụ: *Sales/Purchase Invoices & Credit Memos* bắt buộc dùng `Posting Date`; *Sales/Purchase Quotes & Orders* dùng `Document Date`).
+2. **Quy tắc Nghiêm ngặt về Ngày Trống (Strict No-Fallback):**
+   - Nếu chứng từ bị trống trường ngày quy định (ví dụ `Posting Date = 0D` / blank) $\rightarrow$ **Hệ thống Skip ngay lập tức, ghi log cảnh báo `Skipped: Target date is empty`**.
+   - **Tuyệt đối KHÔNG tự ý Fallback** sang các trường ngày khác (như `Attached Date`), chống mọi hành vi "tự suy đoán" làm lưu trữ nhầm chứng từ chưa đủ điều kiện.
+3. **Minh bạch Kiểm toán (Audit Trail):**
+   - Màn hình Preview và bảng Audit Log bắt buộc lưu vết chi tiết 2 trường:
+     - `Evaluated Date Field`: Tên trường ngày được sử dụng để so khớp (ví dụ: `Posting Date`).
+     - `Evaluated Date Value`: Giá trị ngày thực tế của bản ghi chứng từ nguồn.
 
 ### 3.4. Nguyên tắc Ngữ cảnh Đa Pháp nhân (`DataPerCompany = true`)
 - Dữ liệu chứng từ phân vùng độc lập giữa các công ty (ví dụ `APSS-SG` và `APSS-VN`).
@@ -192,12 +201,23 @@ $$\mathbf{\text{[Blob Container Name]}} \;/\; \mathbf{\text{[Base Folder Path]}}
   - Loại bỏ chuỗi `../` hoặc `..\` để triệt tiêu lỗ hổng Path Traversal.
   - Tổng độ dài đường dẫn Blob $\le 1024$ ký tự (Azure hỗ trợ lên tới 1024 ký tự).
 
-### 6.3. Chính sách Phân tầng Lưu trữ & Vòng đời (Blob Lifecycle Management)
+### 6.3. Chính sách Phân tầng Lưu trữ, Vòng đời & Kiểm soát WORM (Immutability Policy)
 - **Tầng truy cập ban đầu (Default Ingest Tier):** Tệp được upload mặc định vào **`Cool Tier`** để tối ưu hóa chi phí lưu trữ ngay từ ngày đầu tiên.
 - **Azure Blob Lifecycle Management Rules (Tự động hóa trên Azure):**
   - Cấu hình rule trên Storage Account: Nếu Blob có thời gian tạo $> 730$ ngày (2 năm), Azure tự động chuyển tier từ **`Cool`** sang **`Archive Tier`** (chi phí giảm xuống \$0.00099/GB/tháng).
-- **Tính năng Immutability / WORM (Write Once, Read Many):**
-  - Cấu hình **Time-based Retention Policy** trên Container để khóa không cho phép sửa/xóa tệp trong vòng 10 năm theo đúng quy định kiểm toán kế toán tài chính.
+- **Kiểm soát An toàn Tính năng Immutability / WORM (Write Once, Read Many):**
+  > [!WARNING]
+  > **NGUYÊN TẮC QUẢN TRỊ RỦI RO HẠ TẦNG WORM:**
+  > Một khi chính sách Time-based Retention Policy trên Azure Blob bị "Locked", **ngay cả Global Administrator của Azure cũng KHÔNG THỂ xóa hoặc ghi đè file** cho đến khi hết hạn. Nếu upload nhầm file lỗi hoặc trùng lặp, doanh nghiệp sẽ phải trả phí lưu trữ bắt buộc suốt nhiều năm mà không thể dọn dẹp.
+  >
+  > Do đó, kiến trúc quy định:
+  > 1. **Tính năng WORM bắt buộc phải để Configurable (bật/tắt linh hoạt)** trong bảng cấu hình `Azure Blob Archive Setup`.
+  > 2. **Giai đoạn PoC / Kiểm thử:** Chỉ sử dụng **Unlocked policy** (hoặc Disabled), cho phép xóa và upload thay thế bình thường khi thử nghiệm.
+  > 3. **Môi trường Production:** **TUYỆT ĐỐI CHƯA LOCK WORM** cho đến khi có văn bản phê duyệt chính thức từ các bộ phận liên quan:
+  >    - **Finance & Legal:** Chốt chính thức thời hạn lưu trữ (Retention Period - ví dụ 5 năm hay 10 năm theo luật kế toán).
+  >    - **Date Basis:** Thống nhất căn cứ tính ngày bắt đầu retention.
+  >    - **Phạm vi áp dụng:** Xác định rõ danh mục chứng từ và công ty con áp dụng.
+  >    - **Quy trình xử lý sự cố:** Ban hành quy trình chuẩn khi phát hiện file upload nhầm / duplicate.
 
 ---
 
@@ -349,6 +369,16 @@ table 50144 "Azure Blob Archive Setup"
             Caption = 'Approval Expiry (Days)';
             InitValue = 7;
         }
+        field(33; "WORM Policy Enabled"; Boolean)
+        {
+            Caption = 'WORM Policy Enabled (Configurable)';
+            InitValue = false;
+        }
+        field(34; "WORM Policy Locked"; Boolean)
+        {
+            Caption = 'WORM Policy Locked (Irreversible)';
+            InitValue = false;
+        }
         field(40; "Is Configured"; Boolean)
         {
             Caption = 'Is Configured';
@@ -434,6 +464,14 @@ table 50145 "Blob Archive Queue Entry"
         field(23; "File Hash / Checksum"; Text[64])
         {
             Caption = 'Calculated Checksum (SHA-256)';
+        }
+        field(24; "Evaluated Date Field"; Text[50])
+        {
+            Caption = 'Evaluated Date Field (Posting/Document Date)';
+        }
+        field(25; "Evaluated Date Value"; Date)
+        {
+            Caption = 'Evaluated Date Value';
         }
         field(30; "Archive Status"; Enum "Archive Process Status")
         {

@@ -16,9 +16,8 @@
    - 2.4. [Trải Nghiệm Người Dùng & Khả Năng Xem Trực Tiếp](#24-trải-nghiệm-người-dùng--khả-năng-xem-trực-tiếp)
    - 2.5. [Tuân Thủ Pháp Lý, Chống Giả Mạo & Vòng Đời Dữ Liệu](#25-tuân-thủ-pháp-lý-chống-giả-mạo--vòng-đời-dữ-liệu)
 3. [Đánh Giá Khả Năng Mở Rộng & Định Hướng Phát Triển Tương Lai](#3-đánh-giá-khả-năng-mở-rộng--định-hướng-phát-triển-tương-lai)
-   - 3.1. [Tích hợp Trí tuệ Nhân tạo & Xử lý Tài liệu Thông minh (AI & OCR)](#31-tích-hợp-trí-tuệ-nhân-tạo--xử-lý-tài-liệu-thông-minh-ai--ocr)
-   - 3.2. [Khả năng Phục hồi Thảm họa & Dự phòng Địa lý (Disaster Recovery & Geo-Redundancy)](#32-khả-năng-phục-hồi-thảm-họa--dự-phòng-địa-lý-disaster-recovery--geo-redundancy)
-   - 3.3. [Kiến trúc Cổng Lưu trữ Đa Đích (Multi-Target Storage Gateway)](#33-kiến-trúc-cổng-lưu-trữ-đa-đích-multi-target-storage-gateway)
+   - 3.1. [Khả năng Phục hồi Thảm họa & Dự phòng Địa lý (Disaster Recovery & Geo-Redundancy)](#31-khả-năng-phục-hồi-thảm-họa--dự-phòng-địa-lý-disaster-recovery--geo-redundancy)
+   - 3.2. [Kiến trúc Cổng Lưu trữ Đa Đích (Multi-Target Storage Gateway)](#32-kiến-trúc-cổng-lưu-trữ-đa-đích-multi-target-storage-gateway)
 4. [Ma Trận Ra Quyết Định (Decision Framework)](#4-ma-trận-ra-quyết-định-decision-framework)
 5. [Khuyến Nghị Kiến Trúc Tối Ưu: Mô Hình Phân Tầng Kết Hợp (Hybrid Model)](#5-khuyến-nghị-kiến-trúc-tối-ưu-mô-hình-phân-tầng-kết-hợp-hybrid-model)
 
@@ -119,7 +118,7 @@ graph TD
 
 | Tiêu chuẩn Kế toán & Kiểm toán | SharePoint Online | Azure Blob Storage |
 | :--- | :--- | :--- |
-| **Chống xóa nhầm / Chống sửa (WORM)** | Hỗ trợ Retention Policy và Versioning trên Microsoft Purview. | Hỗ trợ **Immutable Storage with Time-Based Retention Policies** (khóa cứng cấp container, kể cả Admin Azure cũng không xóa được file trong thời hạn quy định). |
+| **Chống xóa nhầm / Chống sửa (WORM)** | Hỗ trợ Retention Policy và Versioning trên Microsoft Purview. | Hỗ trợ **Immutable Storage (Time-Based Retention)**. *Lưu ý quan trọng:* Cần thiết kế **Configurable** (mặc định Unlocked trong PoC), chưa lock cứng trên Production cho đến khi Finance/Legal phê duyệt chính thức để tránh rủi ro không thể xóa file upload nhầm. |
 | **Đối soát Toàn vẹn (Integrity Check)** | Sử dụng thuật toán băm riêng `quickXorHash` kết hợp File Size. | Sử dụng chuẩn quốc tế **`Content-MD5`** kết hợp **SHA-256 Checksum** và **Blob ETag**. |
 | **Tự động chuyển tầng dữ liệu** | Không hỗ trợ tự động (dữ liệu nằm cố định một mức giá). | Tự động hoàn toàn qua **Lifecycle Management Rules** theo số ngày tuổi của tệp. |
 
@@ -127,13 +126,7 @@ graph TD
 
 ## 3. ĐÁNH GIÁ KHẢ NĂNG MỞ RỘNG & ĐỊNH HƯỚNG PHÁT TRIỂN TƯƠNG LAI
 
-### 3.1. Tích hợp Trí tuệ Nhân tạo & Xử lý Tài liệu Thông minh (AI & OCR)
-
-Khi doanh nghiệp muốn nâng cấp hệ thống để tự động hóa xử lý hóa đơn đầu vào:
-- **Trên Azure Blob Storage:** Dữ liệu hóa đơn lưu trữ tại Blob Storage có thể kết nối trực tiếp với **Azure AI Document Intelligence (Form Recognizer)** và **Azure OpenAI**. Hệ thống có thể tự động bóc tách mã số thuế, tổng tiền, dòng chi tiết hóa đơn từ file PDF và đẩy ngược về tạo nháp chứng từ trong Business Central mà không tốn chi phí trung chuyển dữ liệu.
-- **Trên SharePoint:** Cần cấu hình qua Microsoft Syntex hoặc Power Automate, chi phí bản quyền tính theo lượt quét khá cao và tốc độ xử lý hàng loạt chậm hơn.
-
-### 3.2. Khả năng Phục hồi Thảm họa & Dự phòng Địa lý (Disaster Recovery & Geo-Redundancy)
+### 3.1. Khả năng Phục hồi Thảm họa & Dự phòng Địa lý (Disaster Recovery & Geo-Redundancy)
 
 - **SharePoint Online:** Doanh nghiệp phụ thuộc hoàn toàn vào hạ tầng mặc định của Microsoft 365 trong khu vực địa lý của tenant.
 - **Azure Blob Storage:** Cung cấp các cấp độ dự phòng linh hoạt theo tiêu chuẩn khắt khe của ngân hàng/tài chính:
@@ -141,7 +134,7 @@ Khi doanh nghiệp muốn nâng cấp hệ thống để tự động hóa xử 
   - **ZRS (Zone-Redundant Storage):** Dự phòng đồng thời trên 3 Availability Zones khác nhau.
   - **GRS / GZRS (Geo-Redundant Storage):** Tự động sao lưu dữ liệu sang một vùng địa lý thứ hai cách xa hàng trăm km (chống thiên tai, sự cố hạ tầng diện rộng).
 
-### 3.3. Kiến trúc Cổng Lưu trữ Đa Đích (Multi-Target Storage Gateway)
+### 3.2. Kiến trúc Cổng Lưu trữ Đa Đích (Multi-Target Storage Gateway)
 
 Cấu trúc mã nguồn hiện tại của dự án hoàn toàn cho phép mở rộng thành kiến trúc **Storage Gateway** linh hoạt bằng cách bổ sung trường `Storage Provider` vào `Archive Setup`:
 
