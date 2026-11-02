@@ -13,9 +13,11 @@ codeunit 50141 "Azure Blob Storage Client"
         BlobItemUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3', Locked = true, Comment = '%1 = Storage Account, %2 = Container, %3 = Path';
         BlockUploadUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=block&blockid=%4', Locked = true;
         BlockListUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=blocklist', Locked = true;
-        ContainerTestUrlLbl: Label 'https://%1.blob.core.windows.net/%2?restype=container', Locked = true;
+        ContainerTestUrlLbl: Label 'https://%1.blob.core.windows.net/%2?restype=container&comp=list&maxresults=1', Locked = true;
         ApiVersionLbl: Label '2023-11-03', Locked = true;
         SetupNotConfiguredErr: Label 'Azure Blob Archive Setup is not configured. Please fill in Storage Account Name, Container Name, and SAS Token.';
+        EnvGuardSandboxErr: Label 'Security Guard: Sandbox environment is blocked from connecting to Production container "%1".', Comment = '%1 = Container Name';
+        EnvGuardProdErr: Label 'Security Guard: Production environment is blocked from connecting to Dev container "%1".', Comment = '%1 = Container Name';
         SizeMismatchErr: Label 'Size verification mismatch! Local size: %1 bytes, Azure Blob size: %2 bytes.', Comment = '%1 = Local size, %2 = Azure Blob size';
         AuditUploadStartedMsg: Label 'Upload started for file %1 to Azure Blob (Size: %2 bytes).', Comment = '%1 = File name, %2 = File size';
         AuditVerifySuccessMsg: Label 'Upload and verification succeeded on Azure Blob. Full URL: %1', Comment = '%1 = Blob URL';
@@ -37,6 +39,8 @@ codeunit 50141 "Azure Blob Storage Client"
     begin
         if (ArchiveSetup."Storage Account Name" = '') or (ArchiveSetup."Container Name" = '') then
             Error(SetupNotConfiguredErr);
+
+        ValidateEnvironmentGuard(ArchiveSetup);
 
         if not GetSasToken(SasToken) then
             Error(SetupNotConfiguredErr);
@@ -82,6 +86,8 @@ codeunit 50141 "Azure Blob Storage Client"
 
         if (ArchiveSetup."Storage Account Name" = '') or (ArchiveSetup."Container Name" = '') then
             Error(SetupNotConfiguredErr);
+
+        ValidateEnvironmentGuard(ArchiveSetup);
 
         if not GetSourceFileInStream(QueueEntry, FileInStream) then begin
             RecordQueueError(QueueEntry, SourceBinaryNotFoundErr);
@@ -588,5 +594,19 @@ codeunit 50141 "Azure Blob Storage Client"
         AuditLog."Message" := CopyStr(Msg, 1, MaxStrLen(AuditLog."Message"));
         AuditLog."Verification Proof" := CopyStr(Proof, 1, MaxStrLen(AuditLog."Verification Proof"));
         AuditLog.Insert(true);
+    end;
+
+    local procedure ValidateEnvironmentGuard(ArchiveSetup: Record "Archive Setup")
+    var
+        EnvironmentInformation: Codeunit "Environment Information";
+        ContainerLower: Text;
+    begin
+        ContainerLower := ArchiveSetup."Container Name".ToLower();
+        if EnvironmentInformation.IsSandbox() then begin
+            if ContainerLower.Contains('prod') then
+                Error(EnvGuardSandboxErr, ArchiveSetup."Container Name");
+        end else
+            if ContainerLower.Contains('dev') then
+                Error(EnvGuardProdErr, ArchiveSetup."Container Name");
     end;
 }
