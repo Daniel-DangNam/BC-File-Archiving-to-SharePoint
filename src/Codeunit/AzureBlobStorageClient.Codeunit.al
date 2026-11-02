@@ -441,16 +441,6 @@ codeunit 50141 "Azure Blob Storage Client"
         exit(SasToken);
     end;
 
-    local procedure NormalizeSasToken(SasToken: Text): Text
-    var
-        CleanToken: Text;
-    begin
-        CleanToken := CleanSasToken(SasToken);
-        if CleanToken = '' then
-            exit('');
-        exit('?' + CleanToken);
-    end;
-
     local procedure GetSourceFileInStream(QueueEntry: Record "Archive Queue Entry"; var OutStream: InStream): Boolean
     var
         DocAttachment: Record "Document Attachment";
