@@ -50,12 +50,18 @@ Màn hình cấu hình chính gồm 4 nhóm thông tin (FastTabs):
 ### 2.1. FastTab 1: Azure Storage Connection (Kết Nối Azure Blob)
 | Tên Trường (Field) | Kiểu Dữ Liệu | Mục Đích & Hướng Dẫn Sử Dụng |
 | :--- | :--- | :--- |
-| **Storage Account Name** | Text[63] | Tên Azure Storage Account đã được khởi tạo trên Azure Portal (ví dụ: `stbcarchivedev`). |
-| **Container Name** | Text[63] | Tên Blob Container chỉ định để lưu file đính kèm (ví dụ: `bc-attachments`). |
+| **Storage Account Name** | Text[63] | Tên Azure Storage Account đã được khởi tạo trên Azure Portal (ví dụ: `stapssbcarchiveprod`). |
+| **Container Name** | Text[63] | Tên Blob Container chỉ định để lưu file đính kèm: <br>- Môi trường Sandbox: `bc-file-archive-dev` <br>- Môi trường Production: `bc-file-archive-prod`. |
 | **SAS Token** | Masked (Text) | Chuỗi SAS Token có quyền `Read`, `Add`, `Create`, `Write`, `List`. Để đảm bảo an toàn cấp doanh nghiệp, giá trị này **không lưu vào Database**, mà được mã hóa lưu riêng trong `IsolatedStorage` của Business Central. |
 | **Is Configured** | Boolean | Cờ chỉ đọc. Tự động bật sang `Yes` khi người dùng nhập đủ thông tin và thực hiện hành động **Test Connection** thành công. |
 
-> **Thao tác Test Connection:** Trên Action Bar, bấm nút **Test Connection**. Hệ thống sẽ gửi một request `GET` đến endpoint container kèm SAS Token. Nếu phản hồi HTTP 200 OK, hệ thống đánh dấu `Is Configured = Yes`.
+> **Thao tác Test Connection:** Trên Action Bar, bấm nút **Test Connection**. Hệ thống sẽ gửi một request `GET` đến endpoint container kèm SAS Token (`?restype=container&comp=list&maxresults=1`). Nếu phản hồi HTTP 200 OK, hệ thống đánh dấu `Is Configured = Yes`.
+
+> [!IMPORTANT]
+> **Cơ Chế Phân Tách Môi Trường An Toàn (Environment Guard):**
+> Hệ thống tích hợp sẵn rào chắn an toàn (Environment Guard) tự động nhận diện môi trường Business Central đang chạy:
+> - Khi đang chạy trên môi trường **Sandbox** (`June9`), hệ thống chỉ cho phép kết nối đến Container dành riêng cho Dev/Test (`bc-file-archive-dev`) và sẽ **chặn hoàn toàn** nếu cấu hình trỏ sang container Production (`...-prod`).
+> - Khi chạy trên môi trường **Production**, hệ thống sẽ yêu cầu kết nối đúng container Production (`bc-file-archive-prod`) để chống việc lưu dữ liệu nhầm lẫn giữa các môi trường.
 
 ---
 
@@ -112,9 +118,9 @@ Trang Hàng đợi là trung tâm chỉ huy điều phối toàn bộ vòng đ�
    - Cập nhật `Archive Status = Verified` và tự động cập nhật bảng `Archive Link Mapping`.
 3. **`Process Batch` (Xử lý theo mẻ):**
    - Kích hoạt xử lý hàng loạt theo mẻ cho các bản ghi đang ở trạng thái `Draft / Pending Upload / Failed (Retry < 3)`.
-4. **`Open from Blob` (Mở tệp trên Azure Blob):**
-   - Sáng lên khi bản ghi đã upload thành công (`Archive Status = Verified`).
-   - Sinh URL tạm thời kèm SAS Token và mở tab trình duyệt để xem/tải tệp.
+4. **`Open in Azure Blob` (Mở tệp trên Azure Blob):**
+   - Sáng lên khi bản ghi đã upload thành công (`Archive Status = Verified` và đã có `Blob Full URL`).
+   - Sinh URL bảo mật tạm thời kèm SAS Token và mở tab trình duyệt để xem/tải tệp.
 5. **`Audit Trail` (Xem lịch sử kiểm toán):**
    - Mở nhanh bảng `Archive Audit Logs` được lọc riêng cho dòng tệp đang chọn.
 
@@ -164,11 +170,11 @@ Trang `Azure Blob Archive Audit Logs` là bảng ghi vết bất biến (Immutab
 Người dùng thông thường (kế toán viên, nhân viên bán hàng/mua hàng) không cần phải vào màn hình Quản trị hàng đợi mà vẫn thao tác trực tiếp trên các chứng từ hàng ngày:
 
 1. **Trên trang Document Attachment Details (Page 1173):**
-   - Hiển thị cột mới **`Archived to Azure Blob`**: Nhận biết ngay tệp này đã được lưu trữ an toàn trên Azure Blob Storage hay chưa.
-   - Action **`Open from Blob`**: Nằm cạnh nút `Preview` chuẩn của BC. Khi click, hệ thống tự động sinh URL kèm SAS token và mở tệp trực tiếp trên tab mới của trình duyệt.
-2. **Trên trang Incoming Documents (Page 193 / Page 194):**
-   - Factbox và danh sách chứng từ đầu vào hiển thị cờ lưu trữ Azure Blob Storage.
-   - Nút **`Open from Blob`** cho phép 1-click mở hóa đơn gốc an toàn và tốc độ cao.
+   - Hiển thị cột mới **`Archived to Azure Blob`**: Nhận biết ngay tệp này đã được lưu trữ an toàn trên Azure Blob Storage hay chưa (Yes / No).
+   - Action **`Open from Azure Blob`**: Nằm cạnh nút `Preview` chuẩn của Business Central. Khi click, hệ thống tự động sinh URL kèm SAS token tạm thời và mở tệp trực tiếp trên tab mới của trình duyệt.
+2. **Trên trang Incoming Documents & Attachments (Page 193 / Page 194):**
+   - Factbox và danh sách chứng từ đầu vào hiển thị cột **`Archived to Azure Blob`**.
+   - Action **`Open from Azure Blob`** (Promoted cạnh nút Export) cho phép 1-click mở chứng từ thanh toán/hóa đơn gốc an toàn và tốc độ cao.
 
 ---
 

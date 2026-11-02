@@ -2,6 +2,9 @@
 
 - **Environment:** Business Central Cloud Sandbox (`June9`)
 - **Tenant ID:** `19f16416-6c91-4c4b-8d75-43a20b8e8f13`
+- **Target Storage Account:** `stapssbcarchiveprod`
+- **Target Container:** `bc-file-archive-dev`
+- **Environment Guard:** Sandbox `June9` $\rightarrow$ Container `bc-file-archive-dev` (Bắt buộc dùng container dev, chặn kết nối tới container prod)
 - **Application Version:** Dynamics 365 Business Central v28
 - **Extension ID:** `630cf308-d773-4b52-89d6-cfbee3e2416d` (Version 1.0.0.0)
 - **Object ID Range:** `50140 .. 50189`
