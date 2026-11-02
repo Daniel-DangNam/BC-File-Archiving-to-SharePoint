@@ -77,6 +77,7 @@ codeunit 50141 "Azure Blob Storage Client"
     procedure ProcessQueueEntry(var QueueEntry: Record "Archive Queue Entry"): Boolean
     var
         ArchiveSetup: Record "Archive Setup";
+        TempBlob: Codeunit "Temp Blob";
         FileInStream: InStream;
         SanitizedPath: Text;
         UploadSuccess: Boolean;
@@ -94,10 +95,12 @@ codeunit 50141 "Azure Blob Storage Client"
 
         ValidateEnvironmentGuard(ArchiveSetup);
 
-        if not GetSourceFileInStream(QueueEntry, FileInStream) then begin
+        if not GetSourceFileInStream(QueueEntry, TempBlob) then begin
             RecordQueueError(QueueEntry, SourceBinaryNotFoundErr);
             exit(false);
         end;
+
+        TempBlob.CreateInStream(FileInStream);
 
         SanitizedPath := BuildSanitizedPath(ArchiveSetup."Base Folder Path", QueueEntry);
         QueueEntry."Blob Relative Path" := CopyStr(SanitizedPath, 1, MaxStrLen(QueueEntry."Blob Relative Path"));
@@ -224,6 +227,9 @@ codeunit 50141 "Azure Blob Storage Client"
             Headers.Add('x-ms-access-tier', TierName);
 
         Content.WriteFrom(FileInStream);
+        Content.GetHeaders(ContentHeaders);
+        ContentHeaders.Remove('Content-Type');
+        ContentHeaders.Add('Content-Type', GetContentType(QueueEntry."File Extension"));
         Request.Content := Content;
 
         if not Client.Send(Request, Response) then begin
@@ -506,11 +512,13 @@ codeunit 50141 "Azure Blob Storage Client"
         exit(SasToken);
     end;
 
-    local procedure GetSourceFileInStream(QueueEntry: Record "Archive Queue Entry"; var OutStream: InStream): Boolean
+    local procedure GetSourceFileInStream(QueueEntry: Record "Archive Queue Entry"; var TempBlob: Codeunit "Temp Blob"): Boolean
     var
         DocAttachment: Record "Document Attachment";
         IncDocAttachment: Record "Incoming Document Attachment";
         TenantMedia: Record "Tenant Media";
+        SourceInStream: InStream;
+        TargetOutStream: OutStream;
     begin
         case QueueEntry."Source Table ID" of
             Database::"Document Attachment":
@@ -519,7 +527,11 @@ codeunit 50141 "Azure Blob Storage Client"
                     if DocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then
                         if TenantMedia.Get(DocAttachment."Document Reference ID".MediaId()) then begin
                             TenantMedia.CalcFields(Content);
-                            TenantMedia.Content.CreateInStream(OutStream);
+                            if not TenantMedia.Content.HasValue() then
+                                exit(false);
+                            TenantMedia.Content.CreateInStream(SourceInStream);
+                            TempBlob.CreateOutStream(TargetOutStream);
+                            CopyStream(TargetOutStream, SourceInStream);
                             exit(true);
                         end;
                 end;
@@ -528,7 +540,11 @@ codeunit 50141 "Azure Blob Storage Client"
                     IncDocAttachment.ChangeCompany(QueueEntry."Company Name");
                     if IncDocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then begin
                         IncDocAttachment.CalcFields(Content);
-                        IncDocAttachment.Content.CreateInStream(OutStream);
+                        if not IncDocAttachment.Content.HasValue() then
+                            exit(false);
+                        IncDocAttachment.Content.CreateInStream(SourceInStream);
+                        TempBlob.CreateOutStream(TargetOutStream);
+                        CopyStream(TargetOutStream, SourceInStream);
                         exit(true);
                     end;
                 end;
