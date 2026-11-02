@@ -3,31 +3,28 @@ namespace APSS.FileArchiving;
 using Microsoft.EServices.EDocument;
 using Microsoft.Foundation.Attachment;
 using System.Environment;
+using System.Text;
 using System.Utilities;
 
-codeunit 50141 "SP Archive Graph Client"
+codeunit 50141 "Azure Blob Storage Client"
 {
     var
-        CachedAccessToken: SecretText;
-        TokenExpiryDateTime: DateTime;
-        SecretKeyLbl: Label 'SP_ARCHIVE_CLIENT_SECRET', Locked = true;
-        GraphScopeLbl: Label 'https://graph.microsoft.com/.default', Locked = true;
-        TokenEndpointLbl: Label 'https://login.microsoftonline.com/%1/oauth2/v2.0/token', Locked = true, Comment = '%1 = Tenant ID';
-        TokenRequestBodyLbl: Label 'client_id=%1&scope=%2&client_secret=%3&grant_type=client_credentials', Locked = true;
-        DriveInfoUrlLbl: Label 'https://graph.microsoft.com/v1.0/drives/%1', Locked = true, Comment = '%1 = Drive ID';
-        SimpleUploadUrlLbl: Label 'https://graph.microsoft.com/v1.0/drives/%1/root:/%2:/content', Locked = true, Comment = '%1 = Drive ID, %2 = File Path';
-        CreateSessionUrlLbl: Label 'https://graph.microsoft.com/v1.0/drives/%1/root:/%2:/createUploadSession', Locked = true, Comment = '%1 = Drive ID, %2 = File Path';
-        ContentRangeLbl: Label 'bytes %1-%2/%3', Locked = true;
-        TokenFailedErr: Label 'Failed to obtain access token from Microsoft Entra ID. HTTP Status: %1, Error: %2', Comment = '%1 = Status Code, %2 = Error details';
-        SetupNotConfiguredErr: Label 'SharePoint Archive Setup is not configured. Please fill in Tenant ID, Client ID, Secret, and Drive ID.';
-        SizeMismatchErr: Label 'Size verification mismatch! Local size: %1 bytes, SharePoint size: %2 bytes.', Comment = '%1 = Local size, %2 = SharePoint size';
-        AuditUploadStartedMsg: Label 'Upload started for file %1 (Size: %2 bytes).', Comment = '%1 = File name, %2 = File size';
-        AuditVerifySuccessMsg: Label 'Upload and verification succeeded. Web URL: %1', Comment = '%1 = SharePoint URL';
-        AuditVerifyProofTxt: Label 'Item ID: %1, Size: %2, ETag: %3', Comment = '%1 = Item ID, %2 = Size, %3 = ETag';
+        SasTokenStorageKeyLbl: Label 'BLOB_ARCHIVE_SAS_TOKEN', Locked = true;
+        BlobItemUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3', Locked = true, Comment = '%1 = Storage Account, %2 = Container, %3 = Path';
+        BlobItemWithSasLbl: Label 'https://%1.blob.core.windows.net/%2/%3%4', Locked = true;
+        BlockUploadUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=block&blockid=%4%5', Locked = true;
+        BlockListUrlLbl: Label 'https://%1.blob.core.windows.net/%2/%3?comp=blocklist%4', Locked = true;
+        ContainerTestUrlLbl: Label 'https://%1.blob.core.windows.net/%2?restype=container%3', Locked = true;
+        ApiVersionLbl: Label '2023-11-03', Locked = true;
+        SetupNotConfiguredErr: Label 'Azure Blob Archive Setup is not configured. Please fill in Storage Account Name, Container Name, and SAS Token.';
+        SizeMismatchErr: Label 'Size verification mismatch! Local size: %1 bytes, Azure Blob size: %2 bytes.', Comment = '%1 = Local size, %2 = Azure Blob size';
+        AuditUploadStartedMsg: Label 'Upload started for file %1 to Azure Blob (Size: %2 bytes).', Comment = '%1 = File name, %2 = File size';
+        AuditVerifySuccessMsg: Label 'Upload and verification succeeded on Azure Blob. Full URL: %1', Comment = '%1 = Blob URL';
+        AuditVerifyProofTxt: Label 'ETag: %1, Size: %2, Content-MD5: %3', Comment = '%1 = ETag, %2 = Size, %3 = MD5';
         SourceBinaryNotFoundErr: Label 'Source attachment binary could not be found or read.';
-        TestConnSuccessMsg: Label 'Connection successful!\Connected to SharePoint Drive: %1 (%2)\Web URL: %3', Comment = '%1 = Drive Name, %2 = Drive Type, %3 = Web URL';
-        TestConnFailedErr: Label 'Connection test failed. HTTP Status: %1, Details: %2', Comment = '%1 = HTTP Status Code, %2 = Details';
-        BatchSummaryMsg: Label 'Batch processing completed. %1 of %2 files uploaded and verified successfully.', Comment = '%1 = Success count, %2 = Total count';
+        TestConnSuccessMsg: Label 'Connection successful!\Connected to Azure Blob Storage Container: "%1" in Account: "%2".', Comment = '%1 = Container Name, %2 = Storage Account';
+        TestConnFailedErr: Label 'Azure Blob connection test failed. HTTP Status: %1, Details: %2', Comment = '%1 = HTTP Status Code, %2 = Details';
+        BatchSummaryMsg: Label 'Batch processing completed. %1 of %2 files uploaded and verified successfully to Azure Blob.', Comment = '%1 = Success count, %2 = Total count';
 
     procedure TestConnection(var ArchiveSetup: Record "Archive Setup"): Boolean
     var
@@ -37,23 +34,22 @@ codeunit 50141 "SP Archive Graph Client"
         Headers: HttpHeaders;
         Url: Text;
         ResponseText: Text;
-        AccessToken: SecretText;
-        JsonObj: JsonObject;
-        JsonTok: JsonToken;
-        DriveName: Text;
-        DriveType: Text;
-        WebUrl: Text;
+        SasToken: SecretText;
+        SasSuffix: Text;
     begin
-        if (ArchiveSetup."Tenant ID" = '') or (ArchiveSetup."Client ID" = '') or (ArchiveSetup."SharePoint Drive ID" = '') then
+        if (ArchiveSetup."Storage Account Name" = '') or (ArchiveSetup."Container Name" = '') then
             Error(SetupNotConfiguredErr);
 
-        AccessToken := GetAccessToken(ArchiveSetup);
+        if not GetSasToken(SasToken) then
+            Error(SetupNotConfiguredErr);
 
-        Url := StrSubstNo(DriveInfoUrlLbl, ArchiveSetup."SharePoint Drive ID");
+        SasSuffix := NormalizeSasToken(SasToken);
+
+        Url := StrSubstNo(ContainerTestUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SasSuffix);
         Request.SetRequestUri(Url);
         Request.Method := 'GET';
         Request.GetHeaders(Headers);
-        Headers.Add('Authorization', SecretStrSubstNo('Bearer %1', AccessToken));
+        Headers.Add('x-ms-version', ApiVersionLbl);
 
         if not Client.Send(Request, Response) then
             Error(TestConnFailedErr, Response.HttpStatusCode(), 'Network request failed');
@@ -66,19 +62,10 @@ codeunit 50141 "SP Archive Graph Client"
             Error(TestConnFailedErr, Response.HttpStatusCode(), ResponseText);
         end;
 
-        if JsonObj.ReadFrom(ResponseText) then begin
-            if JsonObj.Get('name', JsonTok) then
-                DriveName := JsonTok.AsValue().AsText();
-            if JsonObj.Get('driveType', JsonTok) then
-                DriveType := JsonTok.AsValue().AsText();
-            if JsonObj.Get('webUrl', JsonTok) then
-                WebUrl := JsonTok.AsValue().AsText();
-        end;
-
         ArchiveSetup."Is Configured" := true;
         ArchiveSetup.Modify(true);
 
-        Message(TestConnSuccessMsg, DriveName, DriveType, WebUrl);
+        Message(TestConnSuccessMsg, ArchiveSetup."Container Name", ArchiveSetup."Storage Account Name");
         exit(true);
     end;
 
@@ -88,15 +75,15 @@ codeunit 50141 "SP Archive Graph Client"
         FileInStream: InStream;
         SanitizedPath: Text;
         UploadSuccess: Boolean;
-        DriveItemId: Text[250];
-        WebUrl: Text[1000];
+        FullBlobUrl: Text[1000];
         ETag: Text[150];
+        ContentMD5: Text[64];
         ReturnedSize: BigInteger;
     begin
         if not ArchiveSetup.Get() then
             Error(SetupNotConfiguredErr);
 
-        if (ArchiveSetup."Tenant ID" = '') or (ArchiveSetup."Client ID" = '') or (ArchiveSetup."SharePoint Drive ID" = '') then
+        if (ArchiveSetup."Storage Account Name" = '') or (ArchiveSetup."Container Name" = '') then
             Error(SetupNotConfiguredErr);
 
         if not GetSourceFileInStream(QueueEntry, FileInStream) then begin
@@ -105,25 +92,30 @@ codeunit 50141 "SP Archive Graph Client"
         end;
 
         SanitizedPath := BuildSanitizedPath(ArchiveSetup."Base Folder Path", QueueEntry);
-        QueueEntry."SharePoint Relative Path" := CopyStr(SanitizedPath, 1, MaxStrLen(QueueEntry."SharePoint Relative Path"));
+        QueueEntry."Blob Relative Path" := CopyStr(SanitizedPath, 1, MaxStrLen(QueueEntry."Blob Relative Path"));
         QueueEntry."Archive Status" := QueueEntry."Archive Status"::Uploading;
         QueueEntry."Uploaded DateTime" := CurrentDateTime();
         QueueEntry.Modify(false);
 
         RecordAuditLog(QueueEntry, Enum::"Archive Audit Action"::UploadStarted, 'Uploading', StrSubstNo(AuditUploadStartedMsg, QueueEntry."File Name", QueueEntry."Original File Size (Bytes)"), '');
 
-        // Upload execution
+        // Upload execution: <= 4 MB uses Put Blob, > 4 MB uses Put Block / Put Block List
         if QueueEntry."Original File Size (Bytes)" <= 4194304 then
-            UploadSuccess := ExecuteSimpleUpload(ArchiveSetup, SanitizedPath, FileInStream, DriveItemId, WebUrl, ETag, ReturnedSize)
+            UploadSuccess := ExecutePutBlob(ArchiveSetup, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag, ContentMD5)
         else
-            UploadSuccess := ExecuteResumableUpload(ArchiveSetup, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", DriveItemId, WebUrl, ETag, ReturnedSize);
+            UploadSuccess := ExecutePutBlockList(ArchiveSetup, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag, ContentMD5);
 
         if not UploadSuccess then begin
             RecordQueueError(QueueEntry, QueueEntry."Last Error Message");
             exit(false);
         end;
 
-        // Two-way byte-exact verification
+        // Two-way byte-exact verification via HEAD Blob
+        if not VerifyBlobUpload(ArchiveSetup, SanitizedPath, ReturnedSize, ETag, ContentMD5) then begin
+            RecordQueueError(QueueEntry, QueueEntry."Last Error Message");
+            exit(false);
+        end;
+
         if ReturnedSize <> QueueEntry."Original File Size (Bytes)" then begin
             RecordQueueError(QueueEntry, StrSubstNo(SizeMismatchErr, QueueEntry."Original File Size (Bytes)", ReturnedSize));
             exit(false);
@@ -131,10 +123,11 @@ codeunit 50141 "SP Archive Graph Client"
 
         // Mark verified & link mapping
         QueueEntry."Archive Status" := QueueEntry."Archive Status"::Verified;
+        QueueEntry."Purge Status" := QueueEntry."Purge Status"::NotEligible; // Hard-Locked Purge
         QueueEntry."Verified DateTime" := CurrentDateTime();
-        QueueEntry."SharePoint Item ID" := DriveItemId;
-        QueueEntry."SharePoint Web URL" := WebUrl;
-        QueueEntry."SharePoint ETag" := ETag;
+        QueueEntry."Blob Full URL" := FullBlobUrl;
+        QueueEntry."Blob ETag" := ETag;
+        QueueEntry."Blob Content MD5" := ContentMD5;
         QueueEntry."Last Error Message" := '';
         QueueEntry.Modify(false);
 
@@ -144,8 +137,8 @@ codeunit 50141 "SP Archive Graph Client"
             QueueEntry,
             Enum::"Archive Audit Action"::VerifySucceeded,
             'Verified',
-            StrSubstNo(AuditVerifySuccessMsg, WebUrl),
-            StrSubstNo(AuditVerifyProofTxt, DriveItemId, ReturnedSize, ETag));
+            StrSubstNo(AuditVerifySuccessMsg, FullBlobUrl),
+            StrSubstNo(AuditVerifyProofTxt, ETag, ReturnedSize, ContentMD5));
 
         exit(true);
     end;
@@ -179,14 +172,14 @@ codeunit 50141 "SP Archive Graph Client"
         exit(SuccessCount);
     end;
 
-    local procedure ExecuteSimpleUpload(
+    local procedure ExecutePutBlob(
         ArchiveSetup: Record "Archive Setup";
         SanitizedPath: Text;
         FileInStream: InStream;
-        var OutItemId: Text[250];
-        var OutWebUrl: Text[1000];
+        FileSize: BigInteger;
+        var OutFullUrl: Text[1000];
         var OutETag: Text[150];
-        var OutSize: BigInteger): Boolean
+        var OutMD5: Text[64]): Boolean
     var
         Client: HttpClient;
         Request: HttpRequestMessage;
@@ -194,17 +187,29 @@ codeunit 50141 "SP Archive Graph Client"
         Headers: HttpHeaders;
         Content: HttpContent;
         Url: Text;
-        ResponseText: Text;
-        AccessToken: SecretText;
+        SasToken: SecretText;
+        SasSuffix: Text;
+        TierName: Text;
+        ResponseHeaders: HttpHeaders;
+        Values: array[1] of Text;
     begin
-        AccessToken := GetAccessToken(ArchiveSetup);
-        Url := StrSubstNo(SimpleUploadUrlLbl, ArchiveSetup."SharePoint Drive ID", SanitizedPath);
+        if not GetSasToken(SasToken) then
+            exit(false);
+
+        SasSuffix := NormalizeSasToken(SasToken);
+        Url := StrSubstNo(BlobItemWithSasLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, SasSuffix);
+        OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
 
         Request.SetRequestUri(Url);
         Request.Method := 'PUT';
 
         Request.GetHeaders(Headers);
-        Headers.Add('Authorization', SecretStrSubstNo('Bearer %1', AccessToken));
+        Headers.Add('x-ms-blob-type', 'BlockBlob');
+        Headers.Add('x-ms-version', ApiVersionLbl);
+
+        TierName := Format(ArchiveSetup."Default Access Tier");
+        if TierName <> '' then
+            Headers.Add('x-ms-access-tier', TierName);
 
         Content.WriteFrom(FileInStream);
         Request.Content := Content;
@@ -212,25 +217,30 @@ codeunit 50141 "SP Archive Graph Client"
         if not Client.Send(Request, Response) then
             exit(false);
 
-        Response.Content.ReadAs(ResponseText);
-
         if not Response.IsSuccessStatusCode() then
             exit(false);
 
-        exit(ParseDriveItemJson(ResponseText, OutItemId, OutWebUrl, OutETag, OutSize));
+        ResponseHeaders := Response.Headers();
+        if ResponseHeaders.Get('ETag', Values) then
+            OutETag := CopyStr(Values[1], 1, MaxStrLen(OutETag));
+
+        if Response.Content().Headers().Get('Content-MD5', Values) then
+            OutMD5 := CopyStr(Values[1], 1, MaxStrLen(OutMD5));
+
+        exit(true);
     end;
 
-    local procedure ExecuteResumableUpload(
+    local procedure ExecutePutBlockList(
         ArchiveSetup: Record "Archive Setup";
         SanitizedPath: Text;
         FileInStream: InStream;
         FileSize: BigInteger;
-        var OutItemId: Text[250];
-        var OutWebUrl: Text[1000];
+        var OutFullUrl: Text[1000];
         var OutETag: Text[150];
-        var OutSize: BigInteger): Boolean
+        var OutMD5: Text[64]): Boolean
     var
-        MemoryStream: Codeunit "Temp Blob";
+        TempBlob: Codeunit "Temp Blob";
+        Base64Convert: Codeunit "Base64 Convert";
         Client: HttpClient;
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
@@ -238,49 +248,32 @@ codeunit 50141 "SP Archive Graph Client"
         Content: HttpContent;
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
-        AccessToken: SecretText;
-        SessionUrl: Text;
-        UploadUrl: Text;
-        ResponseText: Text;
+        SasToken: SecretText;
+        SasSuffix: Text;
+        BlockIdBase64: Text;
+        BlockUrl: Text;
+        BlockListUrl: Text;
+        BlockListXml: Text;
         ChunkSizeBytes: Integer;
         CurrentChunkSize: Integer;
         BytesRemaining: BigInteger;
-        StartByte: BigInteger;
-        EndByte: BigInteger;
+        BlockIndex: Integer;
+        ResponseHeaders: HttpHeaders;
+        Values: array[1] of Text;
     begin
-        AccessToken := GetAccessToken(ArchiveSetup);
-        SessionUrl := StrSubstNo(CreateSessionUrlLbl, ArchiveSetup."SharePoint Drive ID", SanitizedPath);
-
-        // 1. Create upload session
-        Request.SetRequestUri(SessionUrl);
-        Request.Method := 'POST';
-        Request.GetHeaders(Headers);
-        Headers.Add('Authorization', SecretStrSubstNo('Bearer %1', AccessToken));
-
-        Content.WriteFrom('{"item": {"@microsoft.graph.conflictBehavior": "replace"}}');
-        Content.GetHeaders(Headers);
-        Headers.Remove('Content-Type');
-        Headers.Add('Content-Type', 'application/json');
-        Request.Content := Content;
-
-        if not Client.Send(Request, Response) then
+        if not GetSasToken(SasToken) then
             exit(false);
 
-        Response.Content.ReadAs(ResponseText);
-        if not Response.IsSuccessStatusCode() then
-            exit(false);
+        SasSuffix := NormalizeSasToken(SasToken);
+        OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
 
-        UploadUrl := ExtractUploadUrl(ResponseText);
-        if UploadUrl = '' then
-            exit(false);
-
-        // 2. Upload chunks (multiple of 320 KiB, default 4 MB = 4,194,304 bytes)
         ChunkSizeBytes := ArchiveSetup."Chunk Size (MB)" * 1048576;
-        if ChunkSizeBytes < 4194304 then
+        if ChunkSizeBytes < 1048576 then
             ChunkSizeBytes := 4194304;
 
-        StartByte := 0;
         BytesRemaining := FileSize;
+        BlockIndex := 1;
+        BlockListXml := '<?xml version="1.0" encoding="utf-8"?><BlockList>';
 
         while BytesRemaining > 0 do begin
             if BytesRemaining > ChunkSizeBytes then
@@ -288,136 +281,155 @@ codeunit 50141 "SP Archive Graph Client"
             else
                 CurrentChunkSize := BytesRemaining;
 
-            EndByte := StartByte + CurrentChunkSize - 1;
+            BlockIdBase64 := Base64Convert.ToBase64(PadStr(Format(BlockIndex), 6, '0'));
+            BlockListXml += '<Latest>' + BlockIdBase64 + '</Latest>';
 
-            Clear(MemoryStream);
-            MemoryStream.CreateOutStream(ChunkOutStream);
+            Clear(TempBlob);
+            TempBlob.CreateOutStream(ChunkOutStream);
             CopyStream(ChunkOutStream, FileInStream, CurrentChunkSize);
-            MemoryStream.CreateInStream(ChunkInStream);
+            TempBlob.CreateInStream(ChunkInStream);
+
+            BlockUrl := StrSubstNo(BlockUploadUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, BlockIdBase64, SasSuffix);
 
             Clear(Client);
             Clear(Request);
-            Request.SetRequestUri(UploadUrl);
+            Request.SetRequestUri(BlockUrl);
             Request.Method := 'PUT';
+            Request.GetHeaders(Headers);
+            Headers.Add('x-ms-version', ApiVersionLbl);
 
             Clear(Content);
             Content.WriteFrom(ChunkInStream);
-            Content.GetHeaders(Headers);
-            Headers.Remove('Content-Range');
-            Headers.Add('Content-Range', StrSubstNo(ContentRangeLbl, StartByte, EndByte, FileSize));
-            Headers.Remove('Content-Length');
-            Headers.Add('Content-Length', Format(CurrentChunkSize));
             Request.Content := Content;
 
             if not Client.Send(Request, Response) then
                 exit(false);
 
-            Response.Content.ReadAs(ResponseText);
-
-            if (Response.HttpStatusCode() <> 200) and (Response.HttpStatusCode() <> 201) and (Response.HttpStatusCode() <> 202) then
+            if not Response.IsSuccessStatusCode() then
                 exit(false);
 
-            StartByte += CurrentChunkSize;
+            BlockIndex += 1;
             BytesRemaining -= CurrentChunkSize;
         end;
 
-        exit(ParseDriveItemJson(ResponseText, OutItemId, OutWebUrl, OutETag, OutSize));
+        BlockListXml += '</BlockList>';
+
+        // Commit Block List
+        BlockListUrl := StrSubstNo(BlockListUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, SasSuffix);
+        Clear(Client);
+        Clear(Request);
+        Request.SetRequestUri(BlockListUrl);
+        Request.Method := 'PUT';
+        Request.GetHeaders(Headers);
+        Headers.Add('x-ms-version', ApiVersionLbl);
+        Headers.Add('x-ms-access-tier', Format(ArchiveSetup."Default Access Tier"));
+
+        Clear(Content);
+        Content.WriteFrom(BlockListXml);
+        Content.GetHeaders(Headers);
+        Headers.Remove('Content-Type');
+        Headers.Add('Content-Type', 'application/xml');
+        Request.Content := Content;
+
+        if not Client.Send(Request, Response) then
+            exit(false);
+
+        if not Response.IsSuccessStatusCode() then
+            exit(false);
+
+        ResponseHeaders := Response.Headers();
+        if ResponseHeaders.Get('ETag', Values) then
+            OutETag := CopyStr(Values[1], 1, MaxStrLen(OutETag));
+
+        exit(true);
     end;
 
-    local procedure GetAccessToken(ArchiveSetup: Record "Archive Setup"): SecretText
+    local procedure VerifyBlobUpload(
+        ArchiveSetup: Record "Archive Setup";
+        SanitizedPath: Text;
+        var OutSize: BigInteger;
+        var OutETag: Text[150];
+        var OutMD5: Text[64]): Boolean
     var
         Client: HttpClient;
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
         Headers: HttpHeaders;
-        Content: HttpContent;
         Url: Text;
-        BodyText: Text;
-        ResponseText: Text;
-        JsonObj: JsonObject;
-        JsonTok: JsonToken;
-        TokenText: Text;
-        ClientSecret: Text;
+        SasToken: SecretText;
+        SasSuffix: Text;
+        Values: array[1] of Text;
     begin
-        if CurrentDateTime() < TokenExpiryDateTime then
-            if not CachedAccessToken.IsEmpty() then
-                exit(CachedAccessToken);
-
-        if not IsolatedStorage.Get(SecretKeyLbl, DataScope::Company, ClientSecret) then
-            Error(SetupNotConfiguredErr);
-
-        Url := StrSubstNo(TokenEndpointLbl, ArchiveSetup."Tenant ID");
-        BodyText := StrSubstNo(
-            TokenRequestBodyLbl,
-            ArchiveSetup."Client ID",
-            GraphScopeLbl,
-            ClientSecret);
-
-        Request.SetRequestUri(Url);
-        Request.Method := 'POST';
-        Content.WriteFrom(BodyText);
-        Content.GetHeaders(Headers);
-        Headers.Remove('Content-Type');
-        Headers.Add('Content-Type', 'application/x-www-form-urlencoded');
-        Request.Content := Content;
-
-        if not Client.Send(Request, Response) then
-            Error(TokenFailedErr, Response.HttpStatusCode(), 'Network request failed');
-
-        Response.Content.ReadAs(ResponseText);
-
-        if not Response.IsSuccessStatusCode() then
-            Error(TokenFailedErr, Response.HttpStatusCode(), ResponseText);
-
-        if not JsonObj.ReadFrom(ResponseText) then
-            Error(TokenFailedErr, Response.HttpStatusCode(), 'Invalid JSON token response');
-
-        if JsonObj.Get('access_token', JsonTok) then
-            TokenText := JsonTok.AsValue().AsText();
-
-        CachedAccessToken := TokenText;
-        TokenExpiryDateTime := CurrentDateTime() + 3300000; // 55 minutes cache
-
-        exit(CachedAccessToken);
-    end;
-
-    local procedure ParseDriveItemJson(
-        JsonText: Text;
-        var OutItemId: Text[250];
-        var OutWebUrl: Text[1000];
-        var OutETag: Text[150];
-        var OutSize: BigInteger): Boolean
-    var
-        JsonObj: JsonObject;
-        JsonTok: JsonToken;
-    begin
-        if not JsonObj.ReadFrom(JsonText) then
+        if not GetSasToken(SasToken) then
             exit(false);
 
-        if JsonObj.Get('id', JsonTok) then
-            OutItemId := CopyStr(JsonTok.AsValue().AsText(), 1, MaxStrLen(OutItemId));
+        SasSuffix := NormalizeSasToken(SasToken);
+        Url := StrSubstNo(BlobItemWithSasLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, SasSuffix);
 
-        if JsonObj.Get('webUrl', JsonTok) then
-            OutWebUrl := CopyStr(JsonTok.AsValue().AsText(), 1, MaxStrLen(OutWebUrl));
+        Request.SetRequestUri(Url);
+        Request.Method := 'HEAD';
+        Request.GetHeaders(Headers);
+        Headers.Add('x-ms-version', ApiVersionLbl);
 
-        if JsonObj.Get('eTag', JsonTok) then
-            OutETag := CopyStr(JsonTok.AsValue().AsText(), 1, MaxStrLen(OutETag));
+        if not Client.Send(Request, Response) then
+            exit(false);
 
-        if JsonObj.Get('size', JsonTok) then
-            OutSize := JsonTok.AsValue().AsBigInteger();
+        if not Response.IsSuccessStatusCode() then
+            exit(false);
 
-        exit((OutItemId <> '') and (OutSize > 0));
+        if Response.Content().Headers().Get('Content-Length', Values) then
+            Evaluate(OutSize, Values[1]);
+
+        if Response.Headers().Get('ETag', Values) then
+            OutETag := CopyStr(Values[1], 1, MaxStrLen(OutETag));
+
+        if Response.Content().Headers().Get('Content-MD5', Values) then
+            OutMD5 := CopyStr(Values[1], 1, MaxStrLen(OutMD5));
+
+        exit(OutSize > 0);
     end;
 
-    local procedure ExtractUploadUrl(JsonText: Text): Text
+    procedure GenerateTemporaryViewUrl(QueueEntry: Record "Archive Queue Entry"): Text
     var
-        JsonObj: JsonObject;
-        JsonTok: JsonToken;
+        ArchiveSetup: Record "Archive Setup";
+        SasToken: SecretText;
+        SasSuffix: Text;
     begin
-        if JsonObj.ReadFrom(JsonText) then
-            if JsonObj.Get('uploadUrl', JsonTok) then
-                exit(JsonTok.AsValue().AsText());
-        exit('');
+        if not ArchiveSetup.Get() then
+            exit('');
+
+        if not GetSasToken(SasToken) then
+            exit(QueueEntry."Blob Full URL");
+
+        SasSuffix := NormalizeSasToken(SasToken);
+        exit(StrSubstNo(BlobItemWithSasLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", QueueEntry."Blob Relative Path", SasSuffix));
+    end;
+
+    procedure SetSasToken(SasToken: SecretText)
+    begin
+        IsolatedStorage.Set(SasTokenStorageKeyLbl, SasToken, DataScope::Company);
+    end;
+
+    procedure HasSasToken(): Boolean
+    begin
+        exit(IsolatedStorage.Contains(SasTokenStorageKeyLbl, DataScope::Company));
+    end;
+
+    local procedure GetSasToken(var OutSasToken: SecretText): Boolean
+    begin
+        exit(IsolatedStorage.Get(SasTokenStorageKeyLbl, DataScope::Company, OutSasToken));
+    end;
+
+    local procedure NormalizeSasToken(SasToken: SecretText): Text
+    var
+        TokenText: Text;
+    begin
+        TokenText := SasToken.Unwrap();
+        if TokenText = '' then
+            exit('');
+        if not TokenText.StartsWith('?') then
+            TokenText := '?' + TokenText;
+        exit(TokenText);
     end;
 
     local procedure GetSourceFileInStream(QueueEntry: Record "Archive Queue Entry"; var OutStream: InStream): Boolean
@@ -519,7 +531,8 @@ codeunit 50141 "SP Archive Graph Client"
             LinkMapping."Source Document No." := QueueEntry."Source Document No.";
             LinkMapping."Source Line No." := QueueEntry."Source Line No.";
             LinkMapping."File Name" := QueueEntry."File Name";
-            LinkMapping."SharePoint Web URL" := QueueEntry."SharePoint Web URL";
+            LinkMapping."Blob Full URL" := QueueEntry."Blob Full URL";
+            LinkMapping."Blob Relative Path" := QueueEntry."Blob Relative Path";
             LinkMapping."Is Purged In BC" := false;
             LinkMapping."Archived DateTime" := CurrentDateTime();
             LinkMapping.Insert(true);
@@ -528,7 +541,8 @@ codeunit 50141 "SP Archive Graph Client"
             LinkMapping."Source Document No." := QueueEntry."Source Document No.";
             LinkMapping."Source Line No." := QueueEntry."Source Line No.";
             LinkMapping."File Name" := QueueEntry."File Name";
-            LinkMapping."SharePoint Web URL" := QueueEntry."SharePoint Web URL";
+            LinkMapping."Blob Full URL" := QueueEntry."Blob Full URL";
+            LinkMapping."Blob Relative Path" := QueueEntry."Blob Relative Path";
             LinkMapping."Archived DateTime" := CurrentDateTime();
             LinkMapping.Modify(true);
         end;
