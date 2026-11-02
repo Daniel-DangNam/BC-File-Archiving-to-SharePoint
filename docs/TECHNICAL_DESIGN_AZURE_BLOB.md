@@ -46,7 +46,11 @@ Trong kiến trúc tổng thể của giải pháp lưu trữ, việc di chuyể
 
 Mô hình kiến trúc hướng tới việc phân bổ lưu trữ thông minh:
 
-$$\text{BC Media} \xrightarrow{\text{Scan & Ingest}} \begin{cases} \mathbf{\text{SharePoint Online}} & (\le 1\text{--}2\text{ năm: Hot, truy cập thường xuyên}) \\ \mathbf{\text{Azure Blob Storage}} & (> 2\text{ năm hoặc khi SharePoint đạt 85\% Quota: Cold/Archive})} \end{cases}$$
+```mermaid
+flowchart LR
+    BC["BC Media (Scan & Ingest)"] --> SP["SharePoint Online<br>(≤ 1–2 năm: Hot, truy cập thường xuyên)"]
+    BC --> ABS["Azure Blob Storage<br>(> 2 năm hoặc khi SharePoint đạt 85% Quota: Cold/Archive)"]
+```
 
 Tài liệu này đặc tả độc lập toàn bộ thiết kế kỹ thuật của phương án **Archiving trực tiếp từ Business Central sang Azure Blob Storage** (hoặc làm tầng lưu trữ thứ cấp khi SharePoint đầy).
 
