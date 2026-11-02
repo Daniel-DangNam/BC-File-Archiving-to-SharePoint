@@ -808,3 +808,4 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
 > 2. **Chốt Quy tắc Nghiệp vụ Cut-Off Date:** Thống nhất bằng văn bản với bộ phận Kế toán / Nghiệp vụ về ngày chốt lưu trữ.
 > 3. **Phê duyệt Bảo mật & Thiết lập Hạ tầng Azure:** Cấu hình Storage Account, Container Private, Lifecycle Management Policy và cấp phát SAS Token có phạm vi tối thiểu (Least Privilege).
 > 4. **Kiểm thử Tải Đồng thời (Stress Test):** Thực hiện kiểm thử tải với các tệp lớn dung lượng $> 50\text{ MB}$ qua cơ chế Block Blob để đảm bảo tính ổn định tuyệt đối của đường truyền.
+
