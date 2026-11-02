@@ -420,18 +420,31 @@ codeunit 50141 "Azure Blob Storage Client"
             exit(false);
         end;
 
+        ResponseHeaders := Response.Headers;
         Response.Content.GetHeaders(ContentHeaders);
-        if ContentHeaders.GetValues('Content-Length', Values) then
+
+        Clear(Values);
+        if not ContentHeaders.GetValues('Content-Length', Values) then
+            ResponseHeaders.GetValues('Content-Length', Values);
+        if Values[1] <> '' then
             Evaluate(OutSize, Values[1]);
 
-        ResponseHeaders := Response.Headers;
+        Clear(Values);
         if ResponseHeaders.GetValues('ETag', Values) then
             OutETag := CopyStr(Values[1], 1, MaxStrLen(OutETag));
 
-        if ContentHeaders.GetValues('Content-MD5', Values) then
+        Clear(Values);
+        if not ContentHeaders.GetValues('Content-MD5', Values) then
+            ResponseHeaders.GetValues('Content-MD5', Values);
+        if Values[1] <> '' then
             OutMD5 := CopyStr(Values[1], 1, MaxStrLen(OutMD5));
 
-        exit(OutSize > 0);
+        if OutSize <= 0 then begin
+            OutErrorMsg := 'Verification failed: Content-Length header not returned or 0.';
+            exit(false);
+        end;
+
+        exit(true);
     end;
 
     procedure GenerateTemporaryViewUrl(QueueEntry: Record "Archive Queue Entry"): Text
