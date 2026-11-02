@@ -80,6 +80,7 @@ codeunit 50141 "Azure Blob Storage Client"
         ETag: Text[150];
         ContentMD5: Text[64];
         ReturnedSize: BigInteger;
+        ErrorMsg: Text;
     begin
         if not ArchiveSetup.Get() then
             Error(SetupNotConfiguredErr);
@@ -104,18 +105,18 @@ codeunit 50141 "Azure Blob Storage Client"
 
         // Upload execution: <= 4 MB uses Put Blob, > 4 MB uses Put Block / Put Block List
         if QueueEntry."Original File Size (Bytes)" <= 4194304 then
-            UploadSuccess := ExecutePutBlob(ArchiveSetup, SanitizedPath, FileInStream, FullBlobUrl, ETag, ContentMD5)
+            UploadSuccess := ExecutePutBlob(ArchiveSetup, QueueEntry, SanitizedPath, FileInStream, FullBlobUrl, ETag, ContentMD5, ErrorMsg)
         else
-            UploadSuccess := ExecutePutBlockList(ArchiveSetup, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag);
+            UploadSuccess := ExecutePutBlockList(ArchiveSetup, QueueEntry, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag, ErrorMsg);
 
         if not UploadSuccess then begin
-            RecordQueueError(QueueEntry, QueueEntry."Last Error Message");
+            RecordQueueError(QueueEntry, ErrorMsg);
             exit(false);
         end;
 
         // Two-way byte-exact verification via HEAD Blob
-        if not VerifyBlobUpload(ArchiveSetup, SanitizedPath, ReturnedSize, ETag, ContentMD5) then begin
-            RecordQueueError(QueueEntry, QueueEntry."Last Error Message");
+        if not VerifyBlobUpload(ArchiveSetup, SanitizedPath, ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
+            RecordQueueError(QueueEntry, ErrorMsg);
             exit(false);
         end;
 
@@ -177,11 +178,13 @@ codeunit 50141 "Azure Blob Storage Client"
 
     local procedure ExecutePutBlob(
         ArchiveSetup: Record "Archive Setup";
+        QueueEntry: Record "Archive Queue Entry";
         SanitizedPath: Text;
         FileInStream: InStream;
         var OutFullUrl: Text[1000];
         var OutETag: Text[150];
-        var OutMD5: Text[64]): Boolean
+        var OutMD5: Text[64];
+        var OutErrorMsg: Text): Boolean
     var
         Client: HttpClient;
         Request: HttpRequestMessage;
@@ -189,14 +192,17 @@ codeunit 50141 "Azure Blob Storage Client"
         Headers: HttpHeaders;
         Content: HttpContent;
         Url: Text;
+        ResponseText: Text;
         SasToken: Text;
         TierName: Text;
         ResponseHeaders: HttpHeaders;
         ContentHeaders: HttpHeaders;
         Values: array[1] of Text;
     begin
-        if not GetSasToken(SasToken) then
+        if not GetSasToken(SasToken) then begin
+            OutErrorMsg := SetupNotConfiguredErr;
             exit(false);
+        end;
 
         OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
         Url := AppendSasToken(OutFullUrl, SasToken);
@@ -207,6 +213,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Request.GetHeaders(Headers);
         Headers.Add('x-ms-blob-type', 'BlockBlob');
         Headers.Add('x-ms-version', ApiVersionLbl);
+        Headers.Add('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
 
         TierName := Format(ArchiveSetup."Default Access Tier");
         if TierName <> '' then
@@ -215,11 +222,16 @@ codeunit 50141 "Azure Blob Storage Client"
         Content.WriteFrom(FileInStream);
         Request.Content := Content;
 
-        if not Client.Send(Request, Response) then
+        if not Client.Send(Request, Response) then begin
+            OutErrorMsg := 'Network request failed sending blob to Azure.';
             exit(false);
+        end;
 
-        if not Response.IsSuccessStatusCode() then
+        if not Response.IsSuccessStatusCode() then begin
+            Response.Content.ReadAs(ResponseText);
+            OutErrorMsg := CopyStr(StrSubstNo('Upload failed (HTTP %1): %2', Response.HttpStatusCode(), ResponseText), 1, 250);
             exit(false);
+        end;
 
         ResponseHeaders := Response.Headers;
         if ResponseHeaders.GetValues('ETag', Values) then
@@ -234,11 +246,13 @@ codeunit 50141 "Azure Blob Storage Client"
 
     local procedure ExecutePutBlockList(
         ArchiveSetup: Record "Archive Setup";
+        QueueEntry: Record "Archive Queue Entry";
         SanitizedPath: Text;
         FileInStream: InStream;
         FileSize: BigInteger;
         var OutFullUrl: Text[1000];
-        var OutETag: Text[150]): Boolean
+        var OutETag: Text[150];
+        var OutErrorMsg: Text): Boolean
     var
         TempBlob: Codeunit "Temp Blob";
         Base64Convert: Codeunit "Base64 Convert";
@@ -249,6 +263,8 @@ codeunit 50141 "Azure Blob Storage Client"
         Content: HttpContent;
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
+        Url: Text;
+        ResponseText: Text;
         SasToken: Text;
         BlockIdBase64: Text;
         BlockUrl: Text;
@@ -261,8 +277,10 @@ codeunit 50141 "Azure Blob Storage Client"
         ResponseHeaders: HttpHeaders;
         Values: array[1] of Text;
     begin
-        if not GetSasToken(SasToken) then
+        if not GetSasToken(SasToken) then begin
+            OutErrorMsg := SetupNotConfiguredErr;
             exit(false);
+        end;
 
         OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
 
@@ -302,11 +320,16 @@ codeunit 50141 "Azure Blob Storage Client"
             Content.WriteFrom(ChunkInStream);
             Request.Content := Content;
 
-            if not Client.Send(Request, Response) then
+            if not Client.Send(Request, Response) then begin
+                OutErrorMsg := 'Network request failed uploading block ' + Format(BlockIndex);
                 exit(false);
+            end;
 
-            if not Response.IsSuccessStatusCode() then
+            if not Response.IsSuccessStatusCode() then begin
+                Response.Content.ReadAs(ResponseText);
+                OutErrorMsg := CopyStr(StrSubstNo('Block %1 failed (HTTP %2): %3', BlockIndex, Response.HttpStatusCode(), ResponseText), 1, 250);
                 exit(false);
+            end;
 
             BlockIndex += 1;
             BytesRemaining -= CurrentChunkSize;
@@ -324,6 +347,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Request.GetHeaders(Headers);
         Headers.Add('x-ms-version', ApiVersionLbl);
         Headers.Add('x-ms-access-tier', Format(ArchiveSetup."Default Access Tier"));
+        Headers.Add('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
 
         Clear(Content);
         Content.WriteFrom(BlockListXml);
@@ -332,11 +356,16 @@ codeunit 50141 "Azure Blob Storage Client"
         Headers.Add('Content-Type', 'application/xml');
         Request.Content := Content;
 
-        if not Client.Send(Request, Response) then
+        if not Client.Send(Request, Response) then begin
+            OutErrorMsg := 'Network request failed committing block list.';
             exit(false);
+        end;
 
-        if not Response.IsSuccessStatusCode() then
+        if not Response.IsSuccessStatusCode() then begin
+            Response.Content.ReadAs(ResponseText);
+            OutErrorMsg := CopyStr(StrSubstNo('Commit BlockList failed (HTTP %1): %2', Response.HttpStatusCode(), ResponseText), 1, 250);
             exit(false);
+        end;
 
         ResponseHeaders := Response.Headers;
         if ResponseHeaders.GetValues('ETag', Values) then
@@ -350,7 +379,8 @@ codeunit 50141 "Azure Blob Storage Client"
         SanitizedPath: Text;
         var OutSize: BigInteger;
         var OutETag: Text[150];
-        var OutMD5: Text[64]): Boolean
+        var OutMD5: Text[64];
+        var OutErrorMsg: Text): Boolean
     var
         Client: HttpClient;
         Request: HttpRequestMessage;
@@ -359,11 +389,14 @@ codeunit 50141 "Azure Blob Storage Client"
         ResponseHeaders: HttpHeaders;
         ContentHeaders: HttpHeaders;
         Url: Text;
+        ResponseText: Text;
         SasToken: Text;
         Values: array[1] of Text;
     begin
-        if not GetSasToken(SasToken) then
+        if not GetSasToken(SasToken) then begin
+            OutErrorMsg := SetupNotConfiguredErr;
             exit(false);
+        end;
 
         Url := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath);
         Url := AppendSasToken(Url, SasToken);
@@ -373,11 +406,16 @@ codeunit 50141 "Azure Blob Storage Client"
         Request.GetHeaders(Headers);
         Headers.Add('x-ms-version', ApiVersionLbl);
 
-        if not Client.Send(Request, Response) then
+        if not Client.Send(Request, Response) then begin
+            OutErrorMsg := 'Network request failed during HEAD verification.';
             exit(false);
+        end;
 
-        if not Response.IsSuccessStatusCode() then
+        if not Response.IsSuccessStatusCode() then begin
+            Response.Content.ReadAs(ResponseText);
+            OutErrorMsg := CopyStr(StrSubstNo('HEAD verify failed (HTTP %1): %2', Response.HttpStatusCode(), ResponseText), 1, 250);
             exit(false);
+        end;
 
         Response.Content.GetHeaders(ContentHeaders);
         if ContentHeaders.GetValues('Content-Length', Values) then
@@ -516,7 +554,28 @@ codeunit 50141 "Azure Blob Storage Client"
         Result := DelChr(InputText, '=', '~"#%&*:<>?\/|{}');
         Result := DelChr(Result, '<>', ' .');
         Result := Result.Replace('..', '_');
+        Result := Result.Replace(' ', '_');
         exit(Result);
+    end;
+
+    local procedure GetContentType(Extension: Text): Text
+    begin
+        case Extension.ToLower() of
+            'pdf':
+                exit('application/pdf');
+            'png':
+                exit('image/png');
+            'jpg', 'jpeg':
+                exit('image/jpeg');
+            'xlsx':
+                exit('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            'docx':
+                exit('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+            'txt':
+                exit('text/plain');
+            else
+                exit('application/octet-stream');
+        end;
     end;
 
     local procedure SanitizeFileName(FileName: Text[250]; Extension: Text[30]): Text
