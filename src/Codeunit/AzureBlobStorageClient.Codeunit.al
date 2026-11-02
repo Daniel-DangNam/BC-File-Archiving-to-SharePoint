@@ -26,6 +26,10 @@ codeunit 50141 "Azure Blob Storage Client"
         TestConnSuccessMsg: Label 'Connection successful!\Connected to Azure Blob Storage Container: "%1" in Account: "%2".', Comment = '%1 = Container Name, %2 = Storage Account';
         TestConnFailedErr: Label 'Azure Blob connection test failed. HTTP Status: %1, Details: %2', Comment = '%1 = HTTP Status Code, %2 = Details';
         BatchSummaryMsg: Label 'Batch processing completed. %1 of %2 files uploaded and verified successfully to Azure Blob.', Comment = '%1 = Success count, %2 = Total count';
+        UploadFailedErr: Label 'Upload failed (HTTP %1): %2', Comment = '%1 = Status, %2 = Details';
+        BlockUploadFailedErr: Label 'Block %1 failed (HTTP %2): %3', Comment = '%1 = Index, %2 = Status, %3 = Details';
+        CommitBlockListFailedErr: Label 'Commit BlockList failed (HTTP %1): %2', Comment = '%1 = Status, %2 = Details';
+        HeadVerifyFailedErr: Label 'HEAD verify failed (HTTP %1): %2', Comment = '%1 = Status, %2 = Details';
 
     procedure TestConnection(var ArchiveSetup: Record "Archive Setup"): Boolean
     var
@@ -229,7 +233,7 @@ codeunit 50141 "Azure Blob Storage Client"
 
         if not Response.IsSuccessStatusCode() then begin
             Response.Content.ReadAs(ResponseText);
-            OutErrorMsg := CopyStr(StrSubstNo('Upload failed (HTTP %1): %2', Response.HttpStatusCode(), ResponseText), 1, 250);
+            OutErrorMsg := CopyStr(StrSubstNo(UploadFailedErr, Response.HttpStatusCode(), ResponseText), 1, 250);
             exit(false);
         end;
 
@@ -263,7 +267,6 @@ codeunit 50141 "Azure Blob Storage Client"
         Content: HttpContent;
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
-        Url: Text;
         ResponseText: Text;
         SasToken: Text;
         BlockIdBase64: Text;
@@ -327,7 +330,7 @@ codeunit 50141 "Azure Blob Storage Client"
 
             if not Response.IsSuccessStatusCode() then begin
                 Response.Content.ReadAs(ResponseText);
-                OutErrorMsg := CopyStr(StrSubstNo('Block %1 failed (HTTP %2): %3', BlockIndex, Response.HttpStatusCode(), ResponseText), 1, 250);
+                OutErrorMsg := CopyStr(StrSubstNo(BlockUploadFailedErr, BlockIndex, Response.HttpStatusCode(), ResponseText), 1, 250);
                 exit(false);
             end;
 
@@ -363,7 +366,7 @@ codeunit 50141 "Azure Blob Storage Client"
 
         if not Response.IsSuccessStatusCode() then begin
             Response.Content.ReadAs(ResponseText);
-            OutErrorMsg := CopyStr(StrSubstNo('Commit BlockList failed (HTTP %1): %2', Response.HttpStatusCode(), ResponseText), 1, 250);
+            OutErrorMsg := CopyStr(StrSubstNo(CommitBlockListFailedErr, Response.HttpStatusCode(), ResponseText), 1, 250);
             exit(false);
         end;
 
@@ -413,7 +416,7 @@ codeunit 50141 "Azure Blob Storage Client"
 
         if not Response.IsSuccessStatusCode() then begin
             Response.Content.ReadAs(ResponseText);
-            OutErrorMsg := CopyStr(StrSubstNo('HEAD verify failed (HTTP %1): %2', Response.HttpStatusCode(), ResponseText), 1, 250);
+            OutErrorMsg := CopyStr(StrSubstNo(HeadVerifyFailedErr, Response.HttpStatusCode(), ResponseText), 1, 250);
             exit(false);
         end;
 
