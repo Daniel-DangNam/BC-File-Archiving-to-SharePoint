@@ -13,31 +13,31 @@ table 50140 "Archive Setup"
         {
             Caption = 'Primary Key';
         }
-        field(10; "Tenant ID"; Text[50])
+        field(10; "Storage Account Name"; Text[100])
         {
-            Caption = 'Microsoft Entra Tenant ID';
+            Caption = 'Azure Storage Account Name';
         }
-        field(11; "Client ID"; Text[50])
+        field(11; "Container Name"; Text[100])
         {
-            Caption = 'App Registration Client ID';
+            Caption = 'Blob Container Name';
         }
-        field(12; "SharePoint Site ID"; Text[150])
-        {
-            Caption = 'SharePoint Site ID (Graph)';
-        }
-        field(13; "SharePoint Drive ID"; Text[150])
-        {
-            Caption = 'Document Library (Drive ID)';
-        }
-        field(14; "Base Folder Path"; Text[250])
+        field(12; "Base Folder Path"; Text[250])
         {
             Caption = 'Base Folder Path';
+        }
+        field(13; "Default Access Tier"; Option)
+        {
+            Caption = 'Default Access Tier';
+            OptionMembers = "Cool","Hot","Cold","Archive";
+            OptionCaption = 'Cool,Hot,Cold,Archive';
+            InitValue = "Cool";
         }
         field(20; "Cut-Off Date Rule"; Option)
         {
             Caption = 'Cut-Off Date Evaluation Rule';
-            OptionMembers = "Posting Date","Document Date","Attached Date";
-            OptionCaption = 'Posting Date,Document Date,Attached Date';
+            OptionMembers = "Posting Date","Document Date";
+            OptionCaption = 'Posting Date,Document Date';
+            InitValue = "Posting Date";
         }
         field(21; "Batch Size"; Integer)
         {
@@ -48,10 +48,10 @@ table 50140 "Archive Setup"
         }
         field(22; "Chunk Size (MB)"; Integer)
         {
-            Caption = 'Chunk Size for Resumable Upload (MB)';
+            Caption = 'Chunk Size for Block Upload (MB)';
             InitValue = 4;
-            MinValue = 4;
-            MaxValue = 60;
+            MinValue = 1;
+            MaxValue = 100;
         }
         field(30; "Require Secondary Approval"; Boolean)
         {
@@ -67,6 +67,16 @@ table 50140 "Archive Setup"
         {
             Caption = 'Approval Expiry (Days)';
             InitValue = 7;
+        }
+        field(33; "WORM Policy Enabled"; Boolean)
+        {
+            Caption = 'WORM Policy Enabled (Configurable)';
+            InitValue = false;
+        }
+        field(34; "WORM Policy Locked"; Boolean)
+        {
+            Caption = 'WORM Policy Locked (Irreversible)';
+            InitValue = false;
         }
         field(40; "Is Configured"; Boolean)
         {

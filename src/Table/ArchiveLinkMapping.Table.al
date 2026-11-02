@@ -34,16 +34,20 @@ table 50143 "Archive Link Mapping"
         {
             Caption = 'File Name';
         }
-        field(10; "SharePoint Web URL"; Text[1000])
+        field(10; "Blob Full URL"; Text[1000])
         {
-            Caption = 'SharePoint Web URL';
+            Caption = 'Blob Full URL';
             ExtendedDatatype = URL;
         }
-        field(11; "Is Purged In BC"; Boolean)
+        field(11; "Blob Relative Path"; Text[500])
+        {
+            Caption = 'Blob Relative Path';
+        }
+        field(12; "Is Purged In BC"; Boolean)
         {
             Caption = 'Is Binary Purged In BC';
         }
-        field(12; "Archived DateTime"; DateTime)
+        field(13; "Archived DateTime"; DateTime)
         {
             Caption = 'Archived Date Time';
         }

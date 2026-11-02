@@ -16,7 +16,7 @@ table 50141 "Archive Queue Entry"
         }
         field(2; "Deterministic Archive Key"; Text[128])
         {
-            Caption = 'Deterministic Archive Key (Hash)';
+            Caption = 'Deterministic Archive Key (SHA-256)';
         }
         field(3; "Company Name"; Text[30])
         {
@@ -65,7 +65,15 @@ table 50141 "Archive Queue Entry"
         }
         field(23; "File Hash / Checksum"; Text[64])
         {
-            Caption = 'Calculated Checksum (SHA-256 / QuickXorHash)';
+            Caption = 'Calculated Checksum (SHA-256)';
+        }
+        field(24; "Evaluated Date Field"; Text[50])
+        {
+            Caption = 'Evaluated Date Field';
+        }
+        field(25; "Evaluated Date Value"; Date)
+        {
+            Caption = 'Evaluated Date Value';
         }
         field(30; "Archive Status"; Enum "Archive Process Status")
         {
@@ -75,22 +83,22 @@ table 50141 "Archive Queue Entry"
         {
             Caption = 'Purge Status';
         }
-        field(40; "SharePoint Relative Path"; Text[500])
+        field(40; "Blob Relative Path"; Text[500])
         {
-            Caption = 'SharePoint Relative Path';
+            Caption = 'Blob Relative Path';
         }
-        field(41; "SharePoint Item ID"; Text[250])
+        field(41; "Blob Full URL"; Text[1000])
         {
-            Caption = 'SharePoint Drive Item ID';
-        }
-        field(42; "SharePoint Web URL"; Text[1000])
-        {
-            Caption = 'SharePoint Web URL';
+            Caption = 'Blob Full URL';
             ExtendedDatatype = URL;
         }
-        field(43; "SharePoint ETag"; Text[150])
+        field(42; "Blob ETag"; Text[150])
         {
-            Caption = 'SharePoint ETag / Version';
+            Caption = 'Blob ETag / Version';
+        }
+        field(43; "Blob Content MD5"; Text[64])
+        {
+            Caption = 'Blob Content MD5 Hash';
         }
         field(50; "Retry Count"; Integer)
         {

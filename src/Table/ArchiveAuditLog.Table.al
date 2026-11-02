@@ -48,7 +48,7 @@ table 50142 "Archive Audit Log"
         }
         field(11; "Verification Proof"; Text[500])
         {
-            Caption = 'Verification Proof (Size/Hash/Item ID)';
+            Caption = 'Verification Proof (Size/ETag/MD5)';
         }
     }
 
