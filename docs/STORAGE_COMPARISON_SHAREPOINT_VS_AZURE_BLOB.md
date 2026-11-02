@@ -217,3 +217,4 @@ flowchart TD
 1. **Trải nghiệm người dùng đạt điểm 10:** Các chứng từ mới vẫn mở xem tức thì và quen thuộc trên SharePoint.
 2. **Chi phí lưu trữ giảm thiểu 90%:** Dữ liệu cũ tự động hạ cánh xuống Azure Blob Cool/Archive mà không làm tốn dung lượng SharePoint đắt đỏ.
 3. **Tính độc lập & Kế thừa mã nguồn:** Module AL Extension trên Business Central hiện tại giữ nguyên toàn bộ cấu trúc Hàng đợi (Queue), Khóa khử trùng lặp (Deterministic Key), và Quy trình Đối soát (Two-Way Verification), chỉ cần cắm thêm nhánh Provider là hệ thống vận hành trơn tru qua hàng chục năm.
+
