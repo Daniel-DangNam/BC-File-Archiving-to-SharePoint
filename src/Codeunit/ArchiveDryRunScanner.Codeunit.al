@@ -2,6 +2,10 @@ namespace APSS.FileArchiving;
 
 using Microsoft.EServices.EDocument;
 using Microsoft.Foundation.Attachment;
+using Microsoft.Purchases.Document;
+using Microsoft.Purchases.History;
+using Microsoft.Sales.Document;
+using Microsoft.Sales.History;
 using System.Environment;
 using System.Security.Encryption;
 
@@ -18,11 +22,12 @@ codeunit 50140 "Archive Dry-Run Scanner"
     var
         TotalFiles: Integer;
         TotalBytes: BigInteger;
+        SkippedEmptyDate: Integer;
     begin
-        RunDryRunForCompany(ArchiveSetup, CopyStr(CompanyName(), 1, 30), CutOffDate, TotalFiles, TotalBytes);
+        RunDryRunForCompany(ArchiveSetup, CopyStr(CompanyName(), 1, 30), CutOffDate, TotalFiles, TotalBytes, SkippedEmptyDate);
 
         if ShowSummary then
-            Message(SummaryMsg, TotalFiles, FormatBytes(TotalBytes), CutOffDate);
+            Message(SummaryMsg, TotalFiles, FormatBytes(TotalBytes), CutOffDate, SkippedEmptyDate);
     end;
 
     procedure RunDryRunForCompany(
@@ -30,15 +35,20 @@ codeunit 50140 "Archive Dry-Run Scanner"
         TargetCompany: Text[30];
         CutOffDate: Date;
         var OutTotalFiles: Integer;
-        var OutTotalBytes: BigInteger)
+        var OutTotalBytes: BigInteger;
+        var OutSkippedEmptyDate: Integer)
     var
         AuditLog: Record "Archive Audit Log";
+        CutOffRuleText: Text[50];
     begin
         OutTotalFiles := 0;
         OutTotalBytes := 0;
+        OutSkippedEmptyDate := 0;
 
-        ScanDocumentAttachments(ArchiveSetup, TargetCompany, CutOffDate, OutTotalFiles, OutTotalBytes);
-        ScanIncomingDocAttachments(ArchiveSetup, TargetCompany, CutOffDate, OutTotalFiles, OutTotalBytes);
+        ScanDocumentAttachments(ArchiveSetup, TargetCompany, CutOffDate, OutTotalFiles, OutTotalBytes, OutSkippedEmptyDate);
+        ScanIncomingDocAttachments(ArchiveSetup, TargetCompany, CutOffDate, OutTotalFiles, OutTotalBytes, OutSkippedEmptyDate);
+
+        CutOffRuleText := Format(ArchiveSetup."Cut-Off Date Rule");
 
         // Record immutable audit entry
         AuditLog.Init();
@@ -50,8 +60,8 @@ codeunit 50140 "Archive Dry-Run Scanner"
         AuditLog."Action Type" := AuditLog."Action Type"::DryRun;
         AuditLog."Old Status" := '';
         AuditLog."New Status" := 'Draft / Preview';
-        AuditLog."Message" := CopyStr(StrSubstNo(PreviewLogMsg, OutTotalFiles, OutTotalBytes), 1, MaxStrLen(AuditLog."Message"));
-        AuditLog."Verification Proof" := CopyStr(StrSubstNo(VerificationProofTxt, CutOffDate, ArchiveSetup."Cut-Off Date Rule"), 1, MaxStrLen(AuditLog."Verification Proof"));
+        AuditLog."Message" := CopyStr(StrSubstNo(PreviewLogMsg, OutTotalFiles, OutTotalBytes, OutSkippedEmptyDate), 1, MaxStrLen(AuditLog."Message"));
+        AuditLog."Verification Proof" := CopyStr(StrSubstNo(VerificationProofTxt, CutOffDate, CutOffRuleText), 1, MaxStrLen(AuditLog."Verification Proof"));
         AuditLog.Insert(true);
     end;
 
@@ -60,20 +70,23 @@ codeunit 50140 "Archive Dry-Run Scanner"
         TargetCompany: Text[30];
         CutOffDate: Date;
         var OutTotalFiles: Integer;
-        var OutTotalBytes: BigInteger)
+        var OutTotalBytes: BigInteger;
+        var OutSkippedEmptyDate: Integer)
     var
         DocAttachment: Record "Document Attachment";
         QueueEntry: Record "Archive Queue Entry";
         TenantMedia: Record "Tenant Media";
         FileSize: BigInteger;
         DetKey: Text[128];
+        EvalDateField: Text[50];
+        EvalDateValue: Date;
     begin
         DocAttachment.ChangeCompany(TargetCompany);
         DocAttachment.SetFilter("File Name", '<>%1', '');
 
         if DocAttachment.FindSet(false) then
             repeat
-                if IsDocAttachmentEligible(DocAttachment, ArchiveSetup."Cut-Off Date Rule", CutOffDate) then begin
+                if IsDocAttachmentEligible(DocAttachment, TargetCompany, ArchiveSetup."Cut-Off Date Rule", CutOffDate, EvalDateField, EvalDateValue) then begin
                     FileSize := 0;
                     if TenantMedia.Get(DocAttachment."Document Reference ID".MediaId()) then begin
                         TenantMedia.CalcFields(Content);
@@ -99,6 +112,8 @@ codeunit 50140 "Archive Dry-Run Scanner"
                             QueueEntry."File Name" := DocAttachment."File Name";
                             QueueEntry."File Extension" := DocAttachment."File Extension";
                             QueueEntry."Original File Size (Bytes)" := FileSize;
+                            QueueEntry."Evaluated Date Field" := EvalDateField;
+                            QueueEntry."Evaluated Date Value" := EvalDateValue;
                             QueueEntry."Archive Status" := QueueEntry."Archive Status"::Draft;
                             QueueEntry."Purge Status" := QueueEntry."Purge Status"::NotEligible;
                             QueueEntry."Is Dry Run" := true;
@@ -109,7 +124,9 @@ codeunit 50140 "Archive Dry-Run Scanner"
                         OutTotalFiles += 1;
                         OutTotalBytes += FileSize;
                     end;
-                end;
+                end else
+                    if (CutOffDate <> 0D) and (EvalDateValue = 0D) then
+                        OutSkippedEmptyDate += 1;
             until DocAttachment.Next() = 0;
     end;
 
@@ -118,18 +135,21 @@ codeunit 50140 "Archive Dry-Run Scanner"
         TargetCompany: Text[30];
         CutOffDate: Date;
         var OutTotalFiles: Integer;
-        var OutTotalBytes: BigInteger)
+        var OutTotalBytes: BigInteger;
+        var OutSkippedEmptyDate: Integer)
     var
         IncDocAttachment: Record "Incoming Document Attachment";
         QueueEntry: Record "Archive Queue Entry";
         FileSize: BigInteger;
         DetKey: Text[128];
+        EvalDateField: Text[50];
+        EvalDateValue: Date;
     begin
         IncDocAttachment.ChangeCompany(TargetCompany);
 
         if IncDocAttachment.FindSet(false) then
             repeat
-                if IsIncomingDocEligible(IncDocAttachment, ArchiveSetup."Cut-Off Date Rule", CutOffDate) then begin
+                if IsIncomingDocEligible(IncDocAttachment, TargetCompany, ArchiveSetup."Cut-Off Date Rule", CutOffDate, EvalDateField, EvalDateValue) then begin
                     IncDocAttachment.CalcFields(Content);
                     FileSize := IncDocAttachment.Content.Length();
 
@@ -151,6 +171,8 @@ codeunit 50140 "Archive Dry-Run Scanner"
                             QueueEntry."File Name" := IncDocAttachment.Name;
                             QueueEntry."File Extension" := IncDocAttachment."File Extension";
                             QueueEntry."Original File Size (Bytes)" := FileSize;
+                            QueueEntry."Evaluated Date Field" := EvalDateField;
+                            QueueEntry."Evaluated Date Value" := EvalDateValue;
                             QueueEntry."Archive Status" := QueueEntry."Archive Status"::Draft;
                             QueueEntry."Purge Status" := QueueEntry."Purge Status"::NotEligible;
                             QueueEntry."Is Dry Run" := true;
@@ -161,61 +183,146 @@ codeunit 50140 "Archive Dry-Run Scanner"
                         OutTotalFiles += 1;
                         OutTotalBytes += FileSize;
                     end;
-                end;
+                end else
+                    if (CutOffDate <> 0D) and (EvalDateValue = 0D) then
+                        OutSkippedEmptyDate += 1;
             until IncDocAttachment.Next() = 0;
     end;
 
     local procedure IsDocAttachmentEligible(
         DocAttachment: Record "Document Attachment";
-        CutOffRule: Option "Posting Date","Document Date","Attached Date";
-        CutOffDate: Date): Boolean
-    var
-        AttachedDate: Date;
+        TargetCompany: Text[30];
+        CutOffRule: Option "Posting Date","Document Date";
+        CutOffDate: Date;
+        var OutDateField: Text[50];
+        var OutDateValue: Date): Boolean
     begin
+        GetDocAttachmentDate(DocAttachment, TargetCompany, CutOffRule, OutDateField, OutDateValue);
+
         if CutOffDate = 0D then
             exit(true);
 
-        case CutOffRule of
-            CutOffRule::"Attached Date":
+        // Strict No-Fallback: If the date is empty, skip record immediately
+        if OutDateValue = 0D then
+            exit(false);
+
+        exit(OutDateValue <= CutOffDate);
+    end;
+
+    local procedure GetDocAttachmentDate(
+        DocAttachment: Record "Document Attachment";
+        TargetCompany: Text[30];
+        CutOffRule: Option "Posting Date","Document Date";
+        var OutDateField: Text[50];
+        var OutDateValue: Date)
+    var
+        SalesHeader: Record "Sales Header";
+        SalesInvHeader: Record "Sales Invoice Header";
+        SalesCrMemoHeader: Record "Sales Cr.Memo Header";
+        PurchHeader: Record "Purchase Header";
+        PurchInvHeader: Record "Purch. Inv. Header";
+        PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr.";
+    begin
+        OutDateValue := 0D;
+
+        if CutOffRule = CutOffRule::"Posting Date" then
+            OutDateField := 'Posting Date'
+        else
+            OutDateField := 'Document Date';
+
+        case DocAttachment."Table ID" of
+            Database::"Sales Header":
                 begin
-                    AttachedDate := DT2Date(DocAttachment."Attached Date");
-                    if AttachedDate = 0D then
-                        exit(true);
-                    exit(AttachedDate <= CutOffDate);
+                    SalesHeader.ChangeCompany(TargetCompany);
+                    if SalesHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then
+                        if CutOffRule = CutOffRule::"Posting Date" then
+                            OutDateValue := SalesHeader."Posting Date"
+                        else
+                            OutDateValue := SalesHeader."Document Date";
                 end;
-            else begin
-                AttachedDate := DT2Date(DocAttachment."Attached Date");
-                if AttachedDate = 0D then
-                    exit(true);
-                exit(AttachedDate <= CutOffDate);
-            end;
+            Database::"Sales Invoice Header":
+                begin
+                    SalesInvHeader.ChangeCompany(TargetCompany);
+                    if SalesInvHeader.Get(DocAttachment."No.") then
+                        if CutOffRule = CutOffRule::"Posting Date" then
+                            OutDateValue := SalesInvHeader."Posting Date"
+                        else
+                            OutDateValue := SalesInvHeader."Document Date";
+                end;
+            Database::"Sales Cr.Memo Header":
+                begin
+                    SalesCrMemoHeader.ChangeCompany(TargetCompany);
+                    if SalesCrMemoHeader.Get(DocAttachment."No.") then
+                        if CutOffRule = CutOffRule::"Posting Date" then
+                            OutDateValue := SalesCrMemoHeader."Posting Date"
+                        else
+                            OutDateValue := SalesCrMemoHeader."Document Date";
+                end;
+            Database::"Purchase Header":
+                begin
+                    PurchHeader.ChangeCompany(TargetCompany);
+                    if PurchHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then
+                        if CutOffRule = CutOffRule::"Posting Date" then
+                            OutDateValue := PurchHeader."Posting Date"
+                        else
+                            OutDateValue := PurchHeader."Document Date";
+                end;
+            Database::"Purch. Inv. Header":
+                begin
+                    PurchInvHeader.ChangeCompany(TargetCompany);
+                    if PurchInvHeader.Get(DocAttachment."No.") then
+                        if CutOffRule = CutOffRule::"Posting Date" then
+                            OutDateValue := PurchInvHeader."Posting Date"
+                        else
+                            OutDateValue := PurchInvHeader."Document Date";
+                end;
+            Database::"Purch. Cr. Memo Hdr.":
+                begin
+                    PurchCrMemoHdr.ChangeCompany(TargetCompany);
+                    if PurchCrMemoHdr.Get(DocAttachment."No.") then
+                        if CutOffRule = CutOffRule::"Posting Date" then
+                            OutDateValue := PurchCrMemoHdr."Posting Date"
+                        else
+                            OutDateValue := PurchCrMemoHdr."Document Date";
+                end;
         end;
     end;
 
     local procedure IsIncomingDocEligible(
         IncDocAttachment: Record "Incoming Document Attachment";
-        CutOffRule: Option "Posting Date","Document Date","Attached Date";
-        CutOffDate: Date): Boolean
+        TargetCompany: Text[30];
+        CutOffRule: Option "Posting Date","Document Date";
+        CutOffDate: Date;
+        var OutDateField: Text[50];
+        var OutDateValue: Date): Boolean
     var
-        TargetDate: Date;
+        IncomingDocument: Record "Incoming Document";
     begin
+        OutDateValue := 0D;
+
+        if CutOffRule = CutOffRule::"Posting Date" then begin
+            OutDateField := 'Posting Date';
+            OutDateValue := IncDocAttachment."Posting Date";
+            if OutDateValue = 0D then begin
+                IncomingDocument.ChangeCompany(TargetCompany);
+                if IncomingDocument.Get(IncDocAttachment."Incoming Document Entry No.") then
+                    OutDateValue := IncomingDocument."Posting Date";
+            end;
+        end else begin
+            OutDateField := 'Document Date';
+            IncomingDocument.ChangeCompany(TargetCompany);
+            if IncomingDocument.Get(IncDocAttachment."Incoming Document Entry No.") then
+                OutDateValue := IncomingDocument."Document Date";
+        end;
+
         if CutOffDate = 0D then
             exit(true);
 
-        case CutOffRule of
-            CutOffRule::"Posting Date":
-                TargetDate := IncDocAttachment."Posting Date";
-            else
-                TargetDate := DT2Date(IncDocAttachment."Created Date-Time");
-        end;
+        // Strict No-Fallback: If target date is empty, skip immediately
+        if OutDateValue = 0D then
+            exit(false);
 
-        if TargetDate = 0D then
-            TargetDate := IncDocAttachment."Posting Date";
-
-        if TargetDate = 0D then
-            exit(true);
-
-        exit(TargetDate <= CutOffDate);
+        exit(OutDateValue <= CutOffDate);
     end;
 
     local procedure GenerateDeterministicKey(
@@ -243,8 +350,8 @@ codeunit 50140 "Archive Dry-Run Scanner"
     end;
 
     var
-        SummaryMsg: Label 'Preview / Dry-Run hoàn tất:\- Tổng số tệp thỏa điều kiện: %1\- Tổng dung lượng dự kiến giải phóng: %2\- Ngày Cut-off: %3\(Lưu ý: Chế độ Dry-Run chỉ quét thống kê, không upload và không xóa bất kỳ dữ liệu nào trên BC).', Comment = '%1 = File count, %2 = Formatted size, %3 = Cut-off date';
-        PreviewLogMsg: Label 'Preview scan completed: %1 eligible files, %2 bytes evaluated.', Comment = '%1 = File count, %2 = Bytes';
+        SummaryMsg: Label 'Preview / Dry-Run hoàn tất:\- Tổng số tệp thỏa điều kiện: %1\- Tổng dung lượng dự kiến giải phóng: %2\- Ngày Cut-off: %3\- Số tệp bỏ qua do ngày trống (No-Fallback): %4\(Lưu ý: Chế độ Dry-Run chỉ quét thống kê, không upload và không xóa bất kỳ dữ liệu nào trên BC).', Comment = '%1 = File count, %2 = Formatted size, %3 = Cut-off date, %4 = Skipped count';
+        PreviewLogMsg: Label 'Preview scan completed: %1 eligible files, %2 bytes evaluated. Skipped empty date: %3.', Comment = '%1 = File count, %2 = Bytes, %3 = Skipped count';
         VerificationProofTxt: Label 'Cut-Off Date: %1, Rule: %2', Comment = '%1 = Date, %2 = Rule';
         SizeKBLbl: Label '%1 KB', Comment = '%1 = Kilobytes';
         SizeMBLbl: Label '%1 MB', Comment = '%1 = Megabytes';
