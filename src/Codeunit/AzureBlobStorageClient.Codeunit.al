@@ -34,7 +34,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Headers: HttpHeaders;
         Url: Text;
         ResponseText: Text;
-        SasToken: SecretText;
+        SasToken: Text;
         SasSuffix: Text;
     begin
         if (ArchiveSetup."Storage Account Name" = '') or (ArchiveSetup."Container Name" = '') then
@@ -101,9 +101,9 @@ codeunit 50141 "Azure Blob Storage Client"
 
         // Upload execution: <= 4 MB uses Put Blob, > 4 MB uses Put Block / Put Block List
         if QueueEntry."Original File Size (Bytes)" <= 4194304 then
-            UploadSuccess := ExecutePutBlob(ArchiveSetup, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag, ContentMD5)
+            UploadSuccess := ExecutePutBlob(ArchiveSetup, SanitizedPath, FileInStream, FullBlobUrl, ETag, ContentMD5)
         else
-            UploadSuccess := ExecutePutBlockList(ArchiveSetup, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag, ContentMD5);
+            UploadSuccess := ExecutePutBlockList(ArchiveSetup, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag);
 
         if not UploadSuccess then begin
             RecordQueueError(QueueEntry, QueueEntry."Last Error Message");
@@ -176,7 +176,6 @@ codeunit 50141 "Azure Blob Storage Client"
         ArchiveSetup: Record "Archive Setup";
         SanitizedPath: Text;
         FileInStream: InStream;
-        FileSize: BigInteger;
         var OutFullUrl: Text[1000];
         var OutETag: Text[150];
         var OutMD5: Text[64]): Boolean
@@ -187,10 +186,11 @@ codeunit 50141 "Azure Blob Storage Client"
         Headers: HttpHeaders;
         Content: HttpContent;
         Url: Text;
-        SasToken: SecretText;
+        SasToken: Text;
         SasSuffix: Text;
         TierName: Text;
         ResponseHeaders: HttpHeaders;
+        ContentHeaders: HttpHeaders;
         Values: array[1] of Text;
     begin
         if not GetSasToken(SasToken) then
@@ -220,11 +220,12 @@ codeunit 50141 "Azure Blob Storage Client"
         if not Response.IsSuccessStatusCode() then
             exit(false);
 
-        ResponseHeaders := Response.Headers();
-        if ResponseHeaders.Get('ETag', Values) then
+        ResponseHeaders := Response.Headers;
+        if ResponseHeaders.GetValues('ETag', Values) then
             OutETag := CopyStr(Values[1], 1, MaxStrLen(OutETag));
 
-        if Response.Content().Headers().Get('Content-MD5', Values) then
+        Response.Content.GetHeaders(ContentHeaders);
+        if ContentHeaders.GetValues('Content-MD5', Values) then
             OutMD5 := CopyStr(Values[1], 1, MaxStrLen(OutMD5));
 
         exit(true);
@@ -236,8 +237,7 @@ codeunit 50141 "Azure Blob Storage Client"
         FileInStream: InStream;
         FileSize: BigInteger;
         var OutFullUrl: Text[1000];
-        var OutETag: Text[150];
-        var OutMD5: Text[64]): Boolean
+        var OutETag: Text[150]): Boolean
     var
         TempBlob: Codeunit "Temp Blob";
         Base64Convert: Codeunit "Base64 Convert";
@@ -248,7 +248,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Content: HttpContent;
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
-        SasToken: SecretText;
+        SasToken: Text;
         SasSuffix: Text;
         BlockIdBase64: Text;
         BlockUrl: Text;
@@ -337,8 +337,8 @@ codeunit 50141 "Azure Blob Storage Client"
         if not Response.IsSuccessStatusCode() then
             exit(false);
 
-        ResponseHeaders := Response.Headers();
-        if ResponseHeaders.Get('ETag', Values) then
+        ResponseHeaders := Response.Headers;
+        if ResponseHeaders.GetValues('ETag', Values) then
             OutETag := CopyStr(Values[1], 1, MaxStrLen(OutETag));
 
         exit(true);
@@ -355,8 +355,10 @@ codeunit 50141 "Azure Blob Storage Client"
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
         Headers: HttpHeaders;
+        ResponseHeaders: HttpHeaders;
+        ContentHeaders: HttpHeaders;
         Url: Text;
-        SasToken: SecretText;
+        SasToken: Text;
         SasSuffix: Text;
         Values: array[1] of Text;
     begin
@@ -377,13 +379,15 @@ codeunit 50141 "Azure Blob Storage Client"
         if not Response.IsSuccessStatusCode() then
             exit(false);
 
-        if Response.Content().Headers().Get('Content-Length', Values) then
+        Response.Content.GetHeaders(ContentHeaders);
+        if ContentHeaders.GetValues('Content-Length', Values) then
             Evaluate(OutSize, Values[1]);
 
-        if Response.Headers().Get('ETag', Values) then
+        ResponseHeaders := Response.Headers;
+        if ResponseHeaders.GetValues('ETag', Values) then
             OutETag := CopyStr(Values[1], 1, MaxStrLen(OutETag));
 
-        if Response.Content().Headers().Get('Content-MD5', Values) then
+        if ContentHeaders.GetValues('Content-MD5', Values) then
             OutMD5 := CopyStr(Values[1], 1, MaxStrLen(OutMD5));
 
         exit(OutSize > 0);
@@ -392,7 +396,7 @@ codeunit 50141 "Azure Blob Storage Client"
     procedure GenerateTemporaryViewUrl(QueueEntry: Record "Archive Queue Entry"): Text
     var
         ArchiveSetup: Record "Archive Setup";
-        SasToken: SecretText;
+        SasToken: Text;
         SasSuffix: Text;
     begin
         if not ArchiveSetup.Get() then
@@ -405,9 +409,13 @@ codeunit 50141 "Azure Blob Storage Client"
         exit(StrSubstNo(BlobItemWithSasLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", QueueEntry."Blob Relative Path", SasSuffix));
     end;
 
-    procedure SetSasToken(SasToken: SecretText)
+    procedure SetSasToken(SasToken: Text)
     begin
-        IsolatedStorage.Set(SasTokenStorageKeyLbl, SasToken, DataScope::Company);
+        if SasToken = '' then begin
+            if IsolatedStorage.Contains(SasTokenStorageKeyLbl, DataScope::Company) then
+                IsolatedStorage.Delete(SasTokenStorageKeyLbl, DataScope::Company);
+        end else
+            IsolatedStorage.SetEncrypted(SasTokenStorageKeyLbl, SasToken, DataScope::Company);
     end;
 
     procedure HasSasToken(): Boolean
@@ -415,21 +423,18 @@ codeunit 50141 "Azure Blob Storage Client"
         exit(IsolatedStorage.Contains(SasTokenStorageKeyLbl, DataScope::Company));
     end;
 
-    local procedure GetSasToken(var OutSasToken: SecretText): Boolean
+    local procedure GetSasToken(var OutSasToken: Text): Boolean
     begin
         exit(IsolatedStorage.Get(SasTokenStorageKeyLbl, DataScope::Company, OutSasToken));
     end;
 
-    local procedure NormalizeSasToken(SasToken: SecretText): Text
-    var
-        TokenText: Text;
+    local procedure NormalizeSasToken(SasToken: Text): Text
     begin
-        TokenText := SasToken.Unwrap();
-        if TokenText = '' then
+        if SasToken = '' then
             exit('');
-        if not TokenText.StartsWith('?') then
-            TokenText := '?' + TokenText;
-        exit(TokenText);
+        if not SasToken.StartsWith('?') then
+            SasToken := '?' + SasToken;
+        exit(SasToken);
     end;
 
     local procedure GetSourceFileInStream(QueueEntry: Record "Archive Queue Entry"; var OutStream: InStream): Boolean

@@ -64,8 +64,7 @@ pageextension 50140 "Doc Attachment Details Ext" extends "Document Attachment De
 
     local procedure GetViewUrl(LinkMapping: Record "Archive Link Mapping"): Text
     var
-        SasToken: SecretText;
-        TokenText: Text;
+        SasToken: Text;
     begin
         if LinkMapping."Blob Full URL" = '' then
             exit('');
@@ -73,14 +72,13 @@ pageextension 50140 "Doc Attachment Details Ext" extends "Document Attachment De
         if not IsolatedStorage.Get('BLOB_ARCHIVE_SAS_TOKEN', DataScope::Company, SasToken) then
             exit(LinkMapping."Blob Full URL");
 
-        TokenText := SasToken.Unwrap();
-        if TokenText = '' then
+        if SasToken = '' then
             exit(LinkMapping."Blob Full URL");
 
-        if not TokenText.StartsWith('?') then
-            TokenText := '?' + TokenText;
+        if not SasToken.StartsWith('?') then
+            SasToken := '?' + SasToken;
 
-        exit(LinkMapping."Blob Full URL" + TokenText);
+        exit(LinkMapping."Blob Full URL" + SasToken);
     end;
 
     var
