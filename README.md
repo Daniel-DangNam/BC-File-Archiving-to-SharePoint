@@ -109,4 +109,19 @@ BC File Archiving to SharePoint / Azure Blob/
 | **So Sánh SharePoint vs. Azure Blob** | Phân tích TCO chi phí 5 năm, giới hạn Quota, hiệu năng, mô hình Hybrid | [Xem tài liệu](docs/STORAGE_COMPARISON_SHAREPOINT_VS_AZURE_BLOB.md) |
 | **Thiết Kế Kỹ Thuật SharePoint** | Đặc tả kỹ thuật phương án SharePoint Online (M365 Graph API) | [Xem tài liệu](docs/TECHNICAL_DESIGN_AND_DATA_MODEL.md) |
 | **Hướng Dẫn Quản Trị & Vận Hành** | Giải thích chi tiết toàn bộ field, nút chức năng và từ điển dữ liệu | [Xem tài liệu](docs/USER_AND_ADMIN_GUIDE.md) |
-| **Báo Cáo Kiểm Thử (Test Report)** | Ghi nhận kết quả thực thi kiểm nghiệm thực tế (TC-01 Dry-Run) | [Xem tài liệu](docs/TEST_EXECUTION_REPORT.md) |
+| **Báo Cáo Kiểm Thử (Test Report)** | Ghi nhận kết quả thực thi kiểm nghiệm thực tế (7/8 Kịch bản PASSED) | [Xem tài liệu](docs/TEST_EXECUTION_REPORT.md) |
+
+---
+
+## 🚀 6. Trạng Thái Triển Khai & Kiểm Nghiệm Thực Tế (Status: Phase 1 Completed)
+
+Đến ngày **04/11/2026**, toàn bộ tính năng cốt lõi của Pha 1 đã được xây dựng hoàn thiện và kiểm thử thành công trên môi trường **Business Central Cloud Sandbox (`June9`)** kết nối với **Azure Blob Storage** (`stapssbcarchiveprod` / `bc-file-archive-dev`):
+
+- ✅ **TC-01 (Dry-Run Scanner):** Quét 121 tệp hợp lệ (148.02 MB) vào hàng đợi Draft, bảo toàn an toàn dữ liệu trên BC.
+- ✅ **TC-02 (Test Connection):** Kết nối SAS Token bảo mật vào Container đạt HTTP 200 OK.
+- ✅ **TC-03 (Single File Upload & Verify):** Upload thành công tệp nhỏ, xác thực byte-exact 100% qua `HEAD Blob`.
+- ✅ **TC-05 (Path Sanitization):** Tự động chuẩn hóa đường dẫn phân cấp `Company/Type/No/File`.
+- ✅ **TC-06 (End-User Access):** Người dùng cuối mở trực tiếp file PDF từ trang **Incoming Documents** qua action `Open from Azure Blob`.
+- ✅ **TC-07 (Strict No-Fallback):** Tự động loại trừ 56 tệp có ngày ghi sổ trống, ghi log cảnh báo minh bạch.
+- ✅ **TC-08 (Hard-Locked Purge):** Khóa cứng an toàn 100% tính năng xóa nhị phân trên BC (`NotEligible`).
+- 🔄 **TC-04 / Batch Processing:** Đã hoàn thiện logic upload phân khối (`PUT Block` + `PUT Block List`) cho tệp lớn và xử lý theo mẻ.
