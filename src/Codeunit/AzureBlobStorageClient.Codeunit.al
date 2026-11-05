@@ -183,6 +183,7 @@ codeunit 50141 "Azure Blob Storage Client"
                 if ProcessQueueEntry(ArchiveQueueEntry) then
                     SuccessCount += 1;
                 ProcessedCount += 1;
+                Commit();
             end;
 
         Message(BatchSummaryMsg, SuccessCount, ProcessedCount);
@@ -203,6 +204,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
         Headers: HttpHeaders;
+        ContentHeaders: HttpHeaders;
         Content: HttpContent;
         Url: Text;
         ResponseText: Text;
@@ -220,6 +222,12 @@ codeunit 50141 "Azure Blob Storage Client"
         OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
         Url := AppendSasToken(OutFullUrl, SasToken);
 
+        Clear(Client);
+        Clear(Request);
+        Clear(Headers);
+        Clear(Content);
+        Clear(ContentHeaders);
+
         Request.SetRequestUri(Url);
         Request.Method := 'PUT';
 
@@ -234,7 +242,7 @@ codeunit 50141 "Azure Blob Storage Client"
 
         Content.WriteFrom(FileInStream);
         Content.GetHeaders(ContentHeaders);
-        ContentHeaders.Remove('Content-Type');
+        ContentHeaders.Clear();
         ContentHeaders.Add('Content-Type', GetContentType(QueueEntry."File Extension"));
         Request.Content := Content;
 
@@ -276,6 +284,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
         Headers: HttpHeaders;
+        ContentHeaders: HttpHeaders;
         Content: HttpContent;
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
@@ -326,12 +335,13 @@ codeunit 50141 "Azure Blob Storage Client"
 
             Clear(Client);
             Clear(Request);
+            Clear(Headers);
+            Clear(Content);
             Request.SetRequestUri(BlockUrl);
             Request.Method := 'PUT';
             Request.GetHeaders(Headers);
             Headers.Add('x-ms-version', ApiVersionLbl);
 
-            Clear(Content);
             Content.WriteFrom(ChunkInStream);
             Request.Content := Content;
 
@@ -357,6 +367,10 @@ codeunit 50141 "Azure Blob Storage Client"
         BlockListUrl := AppendSasToken(BlockListUrl, SasToken);
         Clear(Client);
         Clear(Request);
+        Clear(Headers);
+        Clear(Content);
+        Clear(ContentHeaders);
+
         Request.SetRequestUri(BlockListUrl);
         Request.Method := 'PUT';
         Request.GetHeaders(Headers);
@@ -364,11 +378,10 @@ codeunit 50141 "Azure Blob Storage Client"
         Headers.Add('x-ms-access-tier', Format(ArchiveSetup."Default Access Tier"));
         Headers.Add('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
 
-        Clear(Content);
         Content.WriteFrom(BlockListXml);
-        Content.GetHeaders(Headers);
-        Headers.Remove('Content-Type');
-        Headers.Add('Content-Type', 'application/xml');
+        Content.GetHeaders(ContentHeaders);
+        ContentHeaders.Clear();
+        ContentHeaders.Add('Content-Type', 'application/xml');
         Request.Content := Content;
 
         if not Client.Send(Request, Response) then begin
@@ -416,6 +429,12 @@ codeunit 50141 "Azure Blob Storage Client"
 
         Url := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath);
         Url := AppendSasToken(Url, SasToken);
+
+        Clear(Client);
+        Clear(Request);
+        Clear(Headers);
+        Clear(ResponseHeaders);
+        Clear(ContentHeaders);
 
         Request.SetRequestUri(Url);
         Request.Method := 'HEAD';
