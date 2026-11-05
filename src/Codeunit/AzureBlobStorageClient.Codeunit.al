@@ -241,7 +241,8 @@ codeunit 50141 "Azure Blob Storage Client"
 
         Content.WriteFrom(FileInStream);
         Content.GetHeaders(ContentHeaders);
-        ContentHeaders.Clear();
+        if ContentHeaders.Contains('Content-Type') then
+            ContentHeaders.Remove('Content-Type');
         ContentHeaders.Add('Content-Type', GetContentType(QueueEntry."File Extension"));
         Request.Content := Content;
 
@@ -297,6 +298,7 @@ codeunit 50141 "Azure Blob Storage Client"
         CurrentChunkSize: Integer;
         BytesRemaining: BigInteger;
         BlockIndex: Integer;
+        TierName: Text;
         ResponseHeaders: HttpHeaders;
         Values: array[1] of Text;
     begin
@@ -321,7 +323,7 @@ codeunit 50141 "Azure Blob Storage Client"
             else
                 CurrentChunkSize := BytesRemaining;
 
-            BlockIdBase64 := Base64Convert.ToBase64(PadStr(Format(BlockIndex), 6, '0'));
+            BlockIdBase64 := Base64Convert.ToBase64(PadStr('', 6 - StrLen(Format(BlockIndex)), '0') + Format(BlockIndex));
             BlockListXml += '<Latest>' + BlockIdBase64 + '</Latest>';
 
             Clear(TempBlob);
@@ -374,13 +376,16 @@ codeunit 50141 "Azure Blob Storage Client"
         Request.Method := 'PUT';
         Request.GetHeaders(Headers);
         Headers.Add('x-ms-version', ApiVersionLbl);
-        Headers.Add('x-ms-access-tier', Format(ArchiveSetup."Default Access Tier"));
+        TierName := Format(ArchiveSetup."Default Access Tier");
+        if TierName <> '' then
+            Headers.Add('x-ms-access-tier', TierName);
         Headers.Add('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
 
         Content.WriteFrom(BlockListXml);
         Content.GetHeaders(ContentHeaders);
-        ContentHeaders.Clear();
-        ContentHeaders.Add('Content-Type', 'application/xml');
+        if ContentHeaders.Contains('Content-Type') then
+            ContentHeaders.Remove('Content-Type');
+        ContentHeaders.Add('Content-Type', 'application/xml; charset=utf-8');
         Request.Content := Content;
 
         if not Client.Send(Request, Response) then begin
