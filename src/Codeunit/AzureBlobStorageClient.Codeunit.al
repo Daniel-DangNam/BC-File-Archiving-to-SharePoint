@@ -157,6 +157,8 @@ codeunit 50141 "Azure Blob Storage Client"
     procedure ProcessPendingQueueEntries(BatchLimit: Integer): Integer
     var
         ArchiveQueueEntry: Record "Archive Queue Entry";
+        EntryList: List of [BigInteger];
+        EntryNo: BigInteger;
         ProcessedCount: Integer;
         SuccessCount: Integer;
     begin
@@ -170,14 +172,18 @@ codeunit 50141 "Azure Blob Storage Client"
             ArchiveQueueEntry."Archive Status"::Failed);
         ArchiveQueueEntry.SetRange("Purge Status", Enum::"Purge Process Status"::NotEligible);
 
-        if ArchiveQueueEntry.FindSet(true) then
+        if ArchiveQueueEntry.FindSet(false) then
             repeat
-                if (ArchiveQueueEntry."Archive Status" <> ArchiveQueueEntry."Archive Status"::Failed) or (ArchiveQueueEntry."Retry Count" < 3) then begin
-                    if ProcessQueueEntry(ArchiveQueueEntry) then
-                        SuccessCount += 1;
-                    ProcessedCount += 1;
-                end;
-            until (ArchiveQueueEntry.Next() = 0) or (ProcessedCount >= BatchLimit);
+                if (ArchiveQueueEntry."Archive Status" <> ArchiveQueueEntry."Archive Status"::Failed) or (ArchiveQueueEntry."Retry Count" < 3) then
+                    EntryList.Add(ArchiveQueueEntry."Entry No.");
+            until (ArchiveQueueEntry.Next() = 0) or (EntryList.Count() >= BatchLimit);
+
+        foreach EntryNo in EntryList do
+            if ArchiveQueueEntry.Get(EntryNo) then begin
+                if ProcessQueueEntry(ArchiveQueueEntry) then
+                    SuccessCount += 1;
+                ProcessedCount += 1;
+            end;
 
         Message(BatchSummaryMsg, SuccessCount, ProcessedCount);
         exit(SuccessCount);
