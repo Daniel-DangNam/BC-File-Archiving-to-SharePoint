@@ -54,7 +54,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Request.SetRequestUri(Url);
         Request.Method := 'GET';
         Request.GetHeaders(Headers);
-        Headers.Add('x-ms-version', ApiVersionLbl);
+        Headers.TryAddWithoutValidation('x-ms-version', ApiVersionLbl);
 
         if not Client.Send(Request, Response) then
             Error(TestConnFailedErr, Response.HttpStatusCode(), 'Network request failed');
@@ -110,11 +110,19 @@ codeunit 50141 "Azure Blob Storage Client"
 
         RecordAuditLog(QueueEntry, Enum::"Archive Audit Action"::UploadStarted, 'Uploading', StrSubstNo(AuditUploadStartedMsg, QueueEntry."File Name", QueueEntry."Original File Size (Bytes)"), '');
 
-        // Upload execution: <= 4 MB uses Put Blob, > 4 MB uses Put Block / Put Block List
+        // Upload execution: <= 4 MB uses Put Blob, > 4 MB uses Put Block / Put Block List with Put Blob fallback
         if QueueEntry."Original File Size (Bytes)" <= 4194304 then
             UploadSuccess := ExecutePutBlob(ArchiveSetup, QueueEntry, SanitizedPath, FileInStream, FullBlobUrl, ETag, ContentMD5, ErrorMsg)
-        else
+        else begin
             UploadSuccess := ExecutePutBlockList(ArchiveSetup, QueueEntry, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag, ErrorMsg);
+            if not UploadSuccess then begin
+                Clear(TempBlob);
+                if GetSourceFileInStream(QueueEntry, TempBlob) then begin
+                    TempBlob.CreateInStream(FileInStream);
+                    UploadSuccess := ExecutePutBlob(ArchiveSetup, QueueEntry, SanitizedPath, FileInStream, FullBlobUrl, ETag, ContentMD5, ErrorMsg);
+                end;
+            end;
+        end;
 
         if not UploadSuccess then begin
             RecordQueueError(QueueEntry, ErrorMsg);
@@ -231,19 +239,19 @@ codeunit 50141 "Azure Blob Storage Client"
         Request.Method := 'PUT';
 
         Request.GetHeaders(Headers);
-        Headers.Add('x-ms-blob-type', 'BlockBlob');
-        Headers.Add('x-ms-version', ApiVersionLbl);
-        Headers.Add('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
+        Headers.TryAddWithoutValidation('x-ms-blob-type', 'BlockBlob');
+        Headers.TryAddWithoutValidation('x-ms-version', ApiVersionLbl);
+        Headers.TryAddWithoutValidation('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
 
         TierName := Format(ArchiveSetup."Default Access Tier");
         if TierName <> '' then
-            Headers.Add('x-ms-access-tier', TierName);
+            Headers.TryAddWithoutValidation('x-ms-access-tier', TierName);
 
         Content.WriteFrom(FileInStream);
         Content.GetHeaders(ContentHeaders);
         if ContentHeaders.Contains('Content-Type') then
             ContentHeaders.Remove('Content-Type');
-        ContentHeaders.Add('Content-Type', GetContentType(QueueEntry."File Extension"));
+        ContentHeaders.TryAddWithoutValidation('Content-Type', GetContentType(QueueEntry."File Extension"));
         Request.Content := Content;
 
         if not Client.Send(Request, Response) then begin
@@ -284,7 +292,6 @@ codeunit 50141 "Azure Blob Storage Client"
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
         Headers: HttpHeaders;
-        ContentHeaders: HttpHeaders;
         Content: HttpContent;
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
@@ -341,7 +348,7 @@ codeunit 50141 "Azure Blob Storage Client"
             Request.SetRequestUri(BlockUrl);
             Request.Method := 'PUT';
             Request.GetHeaders(Headers);
-            Headers.Add('x-ms-version', ApiVersionLbl);
+            Headers.TryAddWithoutValidation('x-ms-version', ApiVersionLbl);
 
             Content.WriteFrom(ChunkInStream);
             Request.Content := Content;
@@ -370,22 +377,17 @@ codeunit 50141 "Azure Blob Storage Client"
         Clear(Request);
         Clear(Headers);
         Clear(Content);
-        Clear(ContentHeaders);
 
         Request.SetRequestUri(BlockListUrl);
         Request.Method := 'PUT';
         Request.GetHeaders(Headers);
-        Headers.Add('x-ms-version', ApiVersionLbl);
+        Headers.TryAddWithoutValidation('x-ms-version', ApiVersionLbl);
         TierName := Format(ArchiveSetup."Default Access Tier");
         if TierName <> '' then
-            Headers.Add('x-ms-access-tier', TierName);
-        Headers.Add('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
+            Headers.TryAddWithoutValidation('x-ms-access-tier', TierName);
+        Headers.TryAddWithoutValidation('x-ms-blob-content-type', GetContentType(QueueEntry."File Extension"));
 
         Content.WriteFrom(BlockListXml);
-        Content.GetHeaders(ContentHeaders);
-        if ContentHeaders.Contains('Content-Type') then
-            ContentHeaders.Remove('Content-Type');
-        ContentHeaders.Add('Content-Type', 'application/xml; charset=utf-8');
         Request.Content := Content;
 
         if not Client.Send(Request, Response) then begin
@@ -443,7 +445,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Request.SetRequestUri(Url);
         Request.Method := 'HEAD';
         Request.GetHeaders(Headers);
-        Headers.Add('x-ms-version', ApiVersionLbl);
+        Headers.TryAddWithoutValidation('x-ms-version', ApiVersionLbl);
 
         if not Client.Send(Request, Response) then begin
             OutErrorMsg := 'Network request failed during HEAD verification.';
