@@ -211,7 +211,6 @@ codeunit 50141 "Azure Blob Storage Client"
         SasToken: Text;
         TierName: Text;
         ResponseHeaders: HttpHeaders;
-        ContentHeaders: HttpHeaders;
         Values: array[1] of Text;
     begin
         if not GetSasToken(SasToken) then begin
