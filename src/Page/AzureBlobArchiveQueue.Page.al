@@ -193,6 +193,41 @@ page 50141 "Azure Blob Archive Queue"
                     CurrPage.Update(false);
                 end;
             }
+            action(OpenInBlob)
+            {
+                ApplicationArea = All;
+                Caption = 'Open in Azure Blob';
+                Image = Web;
+                ToolTip = 'Opens the archived document via a secure temporary SAS URL.';
+                Enabled = Rec."Blob Full URL" <> '';
+
+                trigger OnAction()
+                var
+                    BlobClient: Codeunit "Azure Blob Storage Client";
+                    ViewUrl: Text;
+                begin
+                    ViewUrl := BlobClient.GenerateTemporaryViewUrl(Rec);
+                    if ViewUrl <> '' then
+                        Hyperlink(ViewUrl);
+                end;
+            }
+            action(ViewAuditLog)
+            {
+                ApplicationArea = All;
+                Caption = 'Audit Trail';
+                Image = Log;
+                ToolTip = 'Views the audit log entries related to this queue item.';
+
+                trigger OnAction()
+                var
+                    AuditLog: Record "Archive Audit Log";
+                    AuditLogsPage: Page "Azure Blob Archive Audit Logs";
+                begin
+                    AuditLog.SetRange("Queue Entry No.", Rec."Entry No.");
+                    AuditLogsPage.SetTableView(AuditLog);
+                    AuditLogsPage.Run();
+                end;
+            }
             action(PurgeSelected)
             {
                 ApplicationArea = All;
@@ -230,41 +265,6 @@ page 50141 "Azure Blob Archive Queue"
                     CurrPage.Update(false);
                 end;
             }
-            action(OpenInBlob)
-            {
-                ApplicationArea = All;
-                Caption = 'Open in Azure Blob';
-                Image = Web;
-                ToolTip = 'Opens the archived document via a secure temporary SAS URL.';
-                Enabled = Rec."Blob Full URL" <> '';
-
-                trigger OnAction()
-                var
-                    BlobClient: Codeunit "Azure Blob Storage Client";
-                    ViewUrl: Text;
-                begin
-                    ViewUrl := BlobClient.GenerateTemporaryViewUrl(Rec);
-                    if ViewUrl <> '' then
-                        Hyperlink(ViewUrl);
-                end;
-            }
-            action(ViewAuditLog)
-            {
-                ApplicationArea = All;
-                Caption = 'Audit Trail';
-                Image = Log;
-                ToolTip = 'Views the audit log entries related to this queue item.';
-
-                trigger OnAction()
-                var
-                    AuditLog: Record "Archive Audit Log";
-                    AuditLogsPage: Page "Azure Blob Archive Audit Logs";
-                begin
-                    AuditLog.SetRange("Queue Entry No.", Rec."Entry No.");
-                    AuditLogsPage.SetTableView(AuditLog);
-                    AuditLogsPage.Run();
-                end;
-            }
         }
         area(Navigation)
         {
@@ -296,6 +296,12 @@ page 50141 "Azure Blob Archive Queue"
                 {
                 }
                 actionref(ViewAuditLog_Promoted; ViewAuditLog)
+                {
+                }
+                actionref(PurgeSelected_Promoted; PurgeSelected)
+                {
+                }
+                actionref(PurgeBatch_Promoted; PurgeBatch)
                 {
                 }
             }
