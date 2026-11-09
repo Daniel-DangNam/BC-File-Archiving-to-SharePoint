@@ -110,8 +110,9 @@ codeunit 50141 "Azure Blob Storage Client"
 
         RecordAuditLog(QueueEntry, Enum::"Archive Audit Action"::UploadStarted, 'Uploading', StrSubstNo(AuditUploadStartedMsg, QueueEntry."File Name", QueueEntry."Original File Size (Bytes)"), '');
 
-        // Upload execution: <= 4 MB uses Put Blob, > 4 MB uses Put Block / Put Block List with Put Blob fallback
-        if QueueEntry."Original File Size (Bytes)" <= 4194304 then
+        // Upload execution: <= 100 MB uses direct Put Blob (supported up to 5,000 MB in Azure REST API 2023-11-03)
+        // Files > 100 MB use ExecutePutBlockList with direct Put Blob fallback
+        if QueueEntry."Original File Size (Bytes)" <= 104857600 then
             UploadSuccess := ExecutePutBlob(ArchiveSetup, QueueEntry, SanitizedPath, FileInStream, FullBlobUrl, ETag, ContentMD5, ErrorMsg)
         else begin
             UploadSuccess := ExecutePutBlockList(ArchiveSetup, QueueEntry, SanitizedPath, FileInStream, QueueEntry."Original File Size (Bytes)", FullBlobUrl, ETag, ErrorMsg);
