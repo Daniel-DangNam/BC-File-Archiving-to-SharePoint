@@ -143,7 +143,10 @@ codeunit 50141 "Azure Blob Storage Client"
 
         // Mark verified & link mapping
         QueueEntry."Archive Status" := QueueEntry."Archive Status"::Verified;
-        QueueEntry."Purge Status" := QueueEntry."Purge Status"::NotEligible; // Hard-Locked Purge
+        if IsPurgeAllowedEnvironment() then
+            QueueEntry."Purge Status" := QueueEntry."Purge Status"::Approved
+        else
+            QueueEntry."Purge Status" := QueueEntry."Purge Status"::NotEligible; // Hard-Locked on Production
         QueueEntry."Verified DateTime" := CurrentDateTime();
         QueueEntry."Blob Full URL" := FullBlobUrl;
         QueueEntry."Blob ETag" := ETag;
@@ -179,7 +182,6 @@ codeunit 50141 "Azure Blob Storage Client"
             ArchiveQueueEntry."Archive Status"::Draft,
             ArchiveQueueEntry."Archive Status"::PendingUpload,
             ArchiveQueueEntry."Archive Status"::Failed);
-        ArchiveQueueEntry.SetRange("Purge Status", Enum::"Purge Process Status"::NotEligible);
 
         if ArchiveQueueEntry.FindSet(false) then
             repeat
@@ -197,6 +199,156 @@ codeunit 50141 "Azure Blob Storage Client"
 
         Message(BatchSummaryMsg, SuccessCount, ProcessedCount);
         exit(SuccessCount);
+    end;
+
+    procedure PurgeQueueEntry(var QueueEntry: Record "Archive Queue Entry"): Boolean
+    var
+        ArchiveSetup: Record "Archive Setup";
+        DocAttachment: Record "Document Attachment";
+        IncDocAttachment: Record "Incoming Document Attachment";
+        LinkMapping: Record "Archive Link Mapping";
+        ReturnedSize: BigInteger;
+        ETag: Text[150];
+        ContentMD5: Text[64];
+        ErrorMsg: Text;
+        AuditMsg: Text;
+    begin
+        ValidatePurgeAllowed();
+
+        if QueueEntry."Archive Status" <> QueueEntry."Archive Status"::Verified then begin
+            RecordQueueError(QueueEntry, 'Purge aborted: File must be in Verified status prior to purge.');
+            exit(false);
+        end;
+
+        if QueueEntry."Purge Status" = Enum::"Purge Process Status"::Purged then
+            exit(true);
+
+        if not ArchiveSetup.Get() then
+            Error(SetupNotConfiguredErr);
+
+        // Pre-condition: Re-verify remote blob existence and exact size on Azure before clearing local binary
+        if not VerifyBlobUpload(ArchiveSetup, QueueEntry."Blob Relative Path", QueueEntry."Original File Size (Bytes)", ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
+            RecordQueueError(QueueEntry, 'Purge aborted: Re-verify failed. Remote blob is not accessible on Azure: ' + ErrorMsg);
+            exit(false);
+        end;
+
+        if ReturnedSize <> QueueEntry."Original File Size (Bytes)" then begin
+            RecordQueueError(QueueEntry, StrSubstNo('Purge aborted: Remote size (%1) does not match expected size (%2).', ReturnedSize, QueueEntry."Original File Size (Bytes)"));
+            exit(false);
+        end;
+
+        // Clear local binary content based on Source Table ID
+        case QueueEntry."Source Table ID" of
+            Database::"Document Attachment":
+                begin
+                    DocAttachment.ChangeCompany(QueueEntry."Company Name");
+                    if DocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then begin
+                        QueueEntry."Is Shared Media" := IsSharedMedia(DocAttachment);
+                        Clear(DocAttachment."Document Reference ID");
+                        DocAttachment.Modify(false);
+                    end;
+                end;
+            Database::"Incoming Document Attachment":
+                begin
+                    IncDocAttachment.ChangeCompany(QueueEntry."Company Name");
+                    if IncDocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then begin
+                        Clear(IncDocAttachment.Content);
+                        IncDocAttachment.Modify(false);
+                    end;
+                end;
+        end;
+
+        // Update Link Mapping
+        if LinkMapping.Get(QueueEntry."Attachment SystemId") then begin
+            LinkMapping."Is Purged In BC" := true;
+            LinkMapping.Modify(false);
+        end;
+
+        // Update Queue Entry
+        QueueEntry."Purge Status" := QueueEntry."Purge Status"::Purged;
+        QueueEntry."Purged DateTime" := CurrentDateTime();
+        QueueEntry."Last Error Message" := '';
+        QueueEntry.Modify(false);
+
+        AuditMsg := StrSubstNo('Local binary purged in BC for file %1. Remote blob verified on Azure.', QueueEntry."File Name");
+        if QueueEntry."Is Shared Media" then
+            AuditMsg += ' (Note: Media is shared with other document records; shared media reference preserved).';
+
+        RecordAuditLog(
+            QueueEntry,
+            Enum::"Archive Audit Action"::PurgeCompleted,
+            'Purged',
+            AuditMsg,
+            StrSubstNo('Remote Blob: %1', QueueEntry."Blob Full URL"));
+
+        exit(true);
+    end;
+
+    procedure PurgeVerifiedQueueEntries(BatchLimit: Integer): Integer
+    var
+        ArchiveQueueEntry: Record "Archive Queue Entry";
+        EntryList: List of [BigInteger];
+        EntryNo: BigInteger;
+        ProcessedCount: Integer;
+        SuccessCount: Integer;
+    begin
+        ValidatePurgeAllowed();
+
+        if BatchLimit <= 0 then
+            BatchLimit := 50;
+
+        ArchiveQueueEntry.SetCurrentKey("Archive Status", "Entry No.");
+        ArchiveQueueEntry.SetRange("Archive Status", ArchiveQueueEntry."Archive Status"::Verified);
+        ArchiveQueueEntry.SetFilter("Purge Status", '<>%1', Enum::"Purge Process Status"::Purged);
+
+        if ArchiveQueueEntry.FindSet(false) then
+            repeat
+                EntryList.Add(ArchiveQueueEntry."Entry No.");
+            until (ArchiveQueueEntry.Next() = 0) or (EntryList.Count() >= BatchLimit);
+
+        foreach EntryNo in EntryList do
+            if ArchiveQueueEntry.Get(EntryNo) then begin
+                if PurgeQueueEntry(ArchiveQueueEntry) then
+                    SuccessCount += 1;
+                ProcessedCount += 1;
+                Commit();
+            end;
+
+        Message('Purge completed on Sandbox June9: %1 of %2 verified files purged successfully from local storage.', SuccessCount, ProcessedCount);
+        exit(SuccessCount);
+    end;
+
+    procedure IsSharedMedia(DocAttachment: Record "Document Attachment"): Boolean
+    var
+        OtherDocAttachment: Record "Document Attachment";
+    begin
+        if IsNullGuid(DocAttachment."Document Reference ID".MediaId()) then
+            exit(false);
+        OtherDocAttachment.ChangeCompany(DocAttachment.CurrentCompany());
+        OtherDocAttachment.SetRange("Document Reference ID", DocAttachment."Document Reference ID");
+        OtherDocAttachment.SetFilter(SystemId, '<>%1', DocAttachment.SystemId);
+        exit(not OtherDocAttachment.IsEmpty());
+    end;
+
+    procedure IsPurgeAllowedEnvironment(): Boolean
+    var
+        EnvironmentInformation: Codeunit "Environment Information";
+    begin
+        if not EnvironmentInformation.IsSandbox() then
+            exit(false);
+        if EnvironmentInformation.GetEnvironmentName() <> 'June9' then
+            exit(false);
+        exit(true);
+    end;
+
+    procedure ValidatePurgeAllowed()
+    var
+        EnvironmentInformation: Codeunit "Environment Information";
+    begin
+        if not EnvironmentInformation.IsSandbox() then
+            Error('Safety Guard Violation: Purge is strictly locked and prohibited on Production environments.');
+        if EnvironmentInformation.GetEnvironmentName() <> 'June9' then
+            Error('Safety Guard Violation: Purge is currently only authorized on Sandbox environment "June9". Current environment: "%1".', EnvironmentInformation.GetEnvironmentName());
     end;
 
     local procedure ExecutePutBlob(
