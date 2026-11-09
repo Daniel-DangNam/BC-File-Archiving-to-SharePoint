@@ -33,6 +33,9 @@ codeunit 50141 "Azure Blob Storage Client"
         PurgeSizeMismatchErr: Label 'Purge aborted: Remote size (%1) does not match expected size (%2).', Comment = '%1 = Remote size, %2 = Expected size';
         AuditPurgeSuccessMsg: Label 'Local binary purged in BC for file %1. Remote blob verified on Azure.', Comment = '%1 = File name';
         AuditPurgeProofTxt: Label 'Remote Blob: %1', Comment = '%1 = Blob URL';
+        PurgeBatchSummaryMsg: Label 'Purge completed on Sandbox June9: %1 of %2 verified files purged successfully from local storage.', Comment = '%1 = Success count, %2 = Total count';
+        PurgeProdLockedErr: Label 'Safety Guard Violation: Purge is strictly locked and prohibited on Production environments.';
+        PurgeEnvNotAuthorizedErr: Label 'Safety Guard Violation: Purge is currently only authorized on Sandbox environment "June9". Current environment: "%1".', Comment = '%1 = Environment Name';
 
     procedure TestConnection(var ArchiveSetup: Record "Archive Setup"): Boolean
     var
@@ -317,20 +320,28 @@ codeunit 50141 "Azure Blob Storage Client"
                 Commit();
             end;
 
-        Message('Purge completed on Sandbox June9: %1 of %2 verified files purged successfully from local storage.', SuccessCount, ProcessedCount);
+        Message(PurgeBatchSummaryMsg, SuccessCount, ProcessedCount);
         exit(SuccessCount);
     end;
 
     procedure IsSharedMedia(DocAttachment: Record "Document Attachment"): Boolean
     var
         OtherDocAttachment: Record "Document Attachment";
+        TargetMediaId: Guid;
     begin
-        if IsNullGuid(DocAttachment."Document Reference ID".MediaId()) then
+        TargetMediaId := DocAttachment."Document Reference ID".MediaId();
+        if IsNullGuid(TargetMediaId) then
             exit(false);
         OtherDocAttachment.ChangeCompany(DocAttachment.CurrentCompany());
-        OtherDocAttachment.SetRange("Document Reference ID", DocAttachment."Document Reference ID");
-        OtherDocAttachment.SetFilter(SystemId, '<>%1', DocAttachment.SystemId);
-        exit(not OtherDocAttachment.IsEmpty());
+        OtherDocAttachment.SetRange("File Extension", DocAttachment."File Extension");
+        if OtherDocAttachment.FindSet(false) then
+            repeat
+                if (OtherDocAttachment.SystemId <> DocAttachment.SystemId) and
+                   (OtherDocAttachment."Document Reference ID".MediaId() = TargetMediaId)
+                then
+                    exit(true);
+            until OtherDocAttachment.Next() = 0;
+        exit(false);
     end;
 
     procedure IsPurgeAllowedEnvironment(): Boolean
@@ -349,9 +360,9 @@ codeunit 50141 "Azure Blob Storage Client"
         EnvironmentInformation: Codeunit "Environment Information";
     begin
         if not EnvironmentInformation.IsSandbox() then
-            Error('Safety Guard Violation: Purge is strictly locked and prohibited on Production environments.');
+            Error(PurgeProdLockedErr);
         if EnvironmentInformation.GetEnvironmentName() <> 'June9' then
-            Error('Safety Guard Violation: Purge is currently only authorized on Sandbox environment "June9". Current environment: "%1".', EnvironmentInformation.GetEnvironmentName());
+            Error(PurgeEnvNotAuthorizedErr, EnvironmentInformation.GetEnvironmentName());
     end;
 
     local procedure ExecutePutBlob(
