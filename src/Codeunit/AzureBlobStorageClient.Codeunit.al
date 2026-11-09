@@ -30,6 +30,9 @@ codeunit 50141 "Azure Blob Storage Client"
         BlockUploadFailedErr: Label 'Block %1 failed (HTTP %2): %3', Comment = '%1 = Index, %2 = Status, %3 = Details';
         CommitBlockListFailedErr: Label 'Commit BlockList failed (HTTP %1): %2', Comment = '%1 = Status, %2 = Details';
         HeadVerifyFailedErr: Label 'HEAD verify failed (HTTP %1): %2', Comment = '%1 = Status, %2 = Details';
+        PurgeSizeMismatchErr: Label 'Purge aborted: Remote size (%1) does not match expected size (%2).', Comment = '%1 = Remote size, %2 = Expected size';
+        AuditPurgeSuccessMsg: Label 'Local binary purged in BC for file %1. Remote blob verified on Azure.', Comment = '%1 = File name';
+        AuditPurgeProofTxt: Label 'Remote Blob: %1', Comment = '%1 = Blob URL';
 
     procedure TestConnection(var ArchiveSetup: Record "Archive Setup"): Boolean
     var
@@ -233,7 +236,7 @@ codeunit 50141 "Azure Blob Storage Client"
         end;
 
         if ReturnedSize <> QueueEntry."Original File Size (Bytes)" then begin
-            RecordQueueError(QueueEntry, StrSubstNo('Purge aborted: Remote size (%1) does not match expected size (%2).', ReturnedSize, QueueEntry."Original File Size (Bytes)"));
+            RecordQueueError(QueueEntry, StrSubstNo(PurgeSizeMismatchErr, ReturnedSize, QueueEntry."Original File Size (Bytes)"));
             exit(false);
         end;
 
@@ -270,7 +273,7 @@ codeunit 50141 "Azure Blob Storage Client"
         QueueEntry."Last Error Message" := '';
         QueueEntry.Modify(false);
 
-        AuditMsg := StrSubstNo('Local binary purged in BC for file %1. Remote blob verified on Azure.', QueueEntry."File Name");
+        AuditMsg := StrSubstNo(AuditPurgeSuccessMsg, QueueEntry."File Name");
         if QueueEntry."Is Shared Media" then
             AuditMsg += ' (Note: Media is shared with other document records; shared media reference preserved).';
 
@@ -279,7 +282,7 @@ codeunit 50141 "Azure Blob Storage Client"
             Enum::"Archive Audit Action"::PurgeCompleted,
             'Purged',
             AuditMsg,
-            StrSubstNo('Remote Blob: %1', QueueEntry."Blob Full URL"));
+            StrSubstNo(AuditPurgeProofTxt, QueueEntry."Blob Full URL"));
 
         exit(true);
     end;
