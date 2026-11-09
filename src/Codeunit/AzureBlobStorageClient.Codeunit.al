@@ -265,7 +265,7 @@ codeunit 50141 "Azure Blob Storage Client"
         end;
 
         // Update Link Mapping
-        if LinkMapping.Get(QueueEntry."Attachment SystemId") then begin
+        if LinkMapping.Get(QueueEntry."Company Name", QueueEntry."Attachment SystemId") then begin
             LinkMapping."Is Purged In BC" := true;
             LinkMapping.Modify(false);
         end;
