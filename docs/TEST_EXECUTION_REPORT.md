@@ -27,6 +27,10 @@
 | **TC-08** | Cơ chế Khóa Cứng Purge trên Production | Codeunit 50141, Toàn hệ thống | Production bị khóa cứng 100% (`NotEligible`), chặn mọi lệnh xóa trên Prod | Chốt chặn an toàn `ValidatePurgeAllowed` kiểm tra môi trường, chặn đứng mọi thao tác Purge ngoài Sandbox June9 | **PASSED** |
 | **TC-09** | Xóa đơn lẻ tệp nhị phân cục bộ (Purge Selected Binary) | Codeunit 50141, Page 50141 | Re-verify Azure trước khi purge, `Clear` Media trong BC, ghi log Audit | Dòng 1 (`Chapter 4_ Sentiment classification.pdf`) purge thành công, `Purge Status = Purged`, remote blob nguyên vẹn và mở bình thường | **PASSED** |
 | **TC-10** | Xóa hàng loạt theo mẻ (Purge Verified Batch) & Toàn bộ Hàng đợi | Codeunit 50141, Page 50141 | Chạy tự động mẻ 50 file `Verified`, giải phóng bộ nhớ BC, xác nhận link blob | Toàn bộ **177/177 tệp** đã được purge thành công, giải phóng dung lượng BC, 100% tệp vẫn mở xem trực tiếp từ Azure Blob | **PASSED** |
+| **TC-11** | Trải nghiệm Người dùng Kế toán trên Chứng từ Nghiệp vụ Gốc | Page 1173, Page 41/42 | Mở tệp trực tiếp từ FactBox Attachments trên Sales Quote `APSS-TEST-NEW` | Người dùng kế toán bấm `Open from Azure Blob` mở trực tiếp PDF rõ nét trên browser, không cần biết màn hình Admin | **PASSED** |
+| **TC-12** | Chống Xóa Trùng Lặp (Anti-Double Purge & Idempotency) | Codeunit 50141, Page 50141 | Bấm lại Purge Batch khi toàn bộ queue đã Purged; hệ thống không lỗi | Bấm lại Purge Batch: Hệ thống phản hồi an toàn `0 of 0 verified files purged`, kết thúc êm đẹp không lỗi | **PASSED** |
+| **TC-13** | Tính Minh Bạch & Toàn Vẹn của Nhật Ký Kiểm Toán (Audit Trail) | Page 50142, Table 50142 | Lưu vết pháp lý chuỗi `Dry Run` -> `Upload` -> `Verify` -> `Purge` | Ghi nhận đầy đủ lịch sử kiểm toán cho từng tệp, kèm mã ETag, byte size và ghi chú an toàn Shared Media (tệp 167, 168) | **PASSED** |
+| **TC-14** | Xử Lý Ngoại Lệ Mạng & Sai SAS Token (Negative Test) | Page 50140, Codeunit 50141 | Thử cố tình sai SAS Token; hệ thống bắt lỗi an toàn không crash | Hệ thống bắt lỗi HTTP 403 Forbidden êm ái, cảnh báo rõ ràng, không sập phiên làm việc; dán lại token kết nối xanh | **PASSED** |
 
 ---
 
@@ -254,20 +258,78 @@
 
 ---
 
-## 11. Đánh Giá & Kết Luận Tổng Thể
+## 11. Chi Tiết Kịch Bản TC-11: Trải Nghiệm Người Dùng Kế Toán Trên Chứng Từ Nghiệp Vụ Gốc
+
+- **Mục tiêu:** Xác minh nhân viên kế toán hàng ngày mở xem tài liệu đã lưu trữ trên Azure Blob ngay trên trang nghiệp vụ chuẩn (Sales Quote, Purchase Order) mà không cần truy cập trang Quản trị hay Queue.
+- **Dữ liệu & Màn hình kiểm thử:**
+  - Trang nghiệp vụ: `Sales Quotes` (Page 41/42).
+  - Chứng từ kiểm thử: Báo giá `APSS-TEST-NEW` (đã archive và purge dòng số 1 `Chapter 4_ Sentiment classification.pdf`).
+- **Quy trình & Kết quả thực tế:**
+  1. Người dùng mở báo giá `APSS-TEST-NEW`.
+  2. Tại FactBox bên phải (`Attachments`), bấm vào dòng tệp đính kèm.
+  3. Action **`Open from Azure Blob`** hiển thị rõ ràng. Người dùng bấm vào action:
+  4. Trình duyệt tự động mở tab mới, tải và hiển thị file PDF sắc nét trực tiếp từ Azure Blob Storage.
+- **Đánh giá:** **PASSED**.
+
+---
+
+## 12. Chi Tiết Kịch Bản TC-12: Chống Xóa Trùng Lặp & Tính Ổn Định (Anti-Double Purge & Idempotency)
+
+- **Mục tiêu:** Kiểm tra phản ứng của hệ thống khi người dùng hoặc Job Queue vô tình kích hoạt lại hành động Purge khi toàn bộ hàng đợi đã được Purge xong trước đó.
+- **Quy trình & Kết quả thực tế:**
+  1. Trên trang `Azure Blob Archive Queue Entries`, người dùng bấm lại action **`Purge Verified Batch (June9 Only)`**.
+  2. Hệ thống quét qua hàng đợi: Nhận diện 177 tệp đều đã có `Purge Status = Purged`.
+  3. Hệ thống hiển thị thông báo an toàn: *"Purge completed on Sandbox June9: 0 of 0 verified files purged successfully from local storage."*
+  4. Toàn bộ tiến trình hoàn tất êm đẹp trong 1 giây, không có bất kỳ ngoại lệ (Exception) hay lỗi runtime nào xảy ra.
+- **Đánh giá:** **PASSED**.
+
+---
+
+## 13. Chi Tiết Kịch Bản TC-13: Tính Minh Bạch & Toàn Vẹn Của Nhật Ký Kiểm Toán (Audit Trail)
+
+- **Mục tiêu:** Xác minh tính pháp lý và độ tin cậy của bảng nhật ký kiểm toán `Archive Audit Log` (Page 50142) phục vụ kiểm toán thuế và an toàn dữ liệu.
+- **Quy trình & Kết quả thực tế:**
+  1. Người dùng mở trang **Azure Blob Archive Audit Logs** (Page 50142).
+  2. Kiểm tra chuỗi log của các bản ghi:
+     - Ghi nhận đầy đủ chuỗi vòng đời: `Dry Run` $\rightarrow$ `Upload Started` $\rightarrow$ `Verify Succeeded` $\rightarrow$ `Purge Completed`.
+     - Mỗi log Verify ghi nhận đầy đủ `ETag`, `Original Size`, `Content-MD5 Hash`.
+     - Log Purge ghi nhận tài khoản thực thi, thời gian thực thi, URL remote blob và ghi chú đặc biệt cho các tệp dùng chung:
+       *(Note: Media is shared with other document records; shared media reference preserved)* trên các tệp 167 và 168.
+- **Đánh giá:** **PASSED**.
+
+---
+
+## 14. Chi Tiết Kịch Bản TC-14: Xử Lý Ngoại Lệ Mạng & Sai SAS Token (Negative Test)
+
+- **Mục tiêu:** Kiểm tra khả năng bắt lỗi êm ái và tính đàn hồi (resilience) của hệ thống khi gặp sự cố xác thực hoặc chuỗi SAS Token bị sai/hết hạn.
+- **Quy trình & Kết quả thực tế:**
+  1. Trên trang `Azure Blob Archive Setup`, người dùng cố tình sửa đổi/xóa 1 ký tự trong chuỗi SAS Token.
+  2. Bấm nút **`Test Connection`**.
+  3. Hệ thống gửi request sang Azure Blob và nhận mã phản hồi lỗi `HTTP 403 Forbidden` (AuthenticationFailed).
+  4. Hệ thống bắt ngoại lệ gọn gàng, hiển thị thông báo lỗi rõ ràng cho người dùng, công tắc `Is Configured` tự động chuyển về `False`.
+  5. Khi dán lại chuỗi SAS Token chuẩn và bấm `Test Connection`: Hệ thống kết nối lại thành công HTTP 200 OK, `Is Configured` chuyển xanh (Yes).
+- **Đánh giá:** **PASSED**.
+
+---
+
+## 15. Đánh Giá & Kết Luận Tổng Thể
 
 - **Tiến độ tổng thể:**
-  - **Hoàn thành xuất sắc 10/10 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9`:
+  - **Hoàn thành xuất sắc 14/14 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9`:
     - **TC-01:** Chế độ Preview / Dry-Run Scanner (121 tệp, 148.02 MB).
     - **TC-02:** Kiểm tra kết nối Azure Blob (Test Connection - HTTP 200 OK).
     - **TC-03:** Upload tệp nhỏ & Two-Way Byte-Exact Verification qua HEAD Blob.
     - **TC-04:** Xử lý hàng loạt (Process Batch) tệp lớn ($> 4$ MB) đa định dạng (177/177 tệp `Verified`).
     - **TC-05:** Sanitize đường dẫn & ký tự đặc biệt.
-    - **TC-06:** Mở liên kết tệp từ giao diện BC người dùng cuối (`Open from Azure Blob`).
+    - **TC-06:** Mở liên kết tệp từ FactBox Incoming Documents (`Open from Azure Blob`).
     - **TC-07:** Nguyên tắc Cut-Off Date Strict No-Fallback (bỏ qua 56 tệp có ngày trống).
     - **TC-08:** Chốt chặn môi trường & Khóa cứng Purge trên Production (`NotEligible`).
     - **TC-09:** Xóa đơn lẻ tệp nhị phân cục bộ (`Purge Selected Binary`) có kiểm tra Shared Media.
     - **TC-10:** Xóa hàng loạt theo mẻ (`Purge Verified Batch`) hoàn tất **177/177 tệp**, giải phóng bộ nhớ BC an toàn 100%.
+    - **TC-11:** Trải nghiệm người dùng kế toán trên chứng từ nghiệp vụ gốc (`Sales Quotes`).
+    - **TC-12:** Chống xóa trùng lặp & đảm bảo tính ổn định (Anti-Double Purge).
+    - **TC-13:** Tính minh bạch & toàn vẹn của Nhật ký Kiểm toán (`Audit Trail`).
+    - **TC-14:** Bắt lỗi êm ái khi sự cố mạng hoặc sai SAS Token (Negative Test - HTTP 403).
 - **Thống kê hàng đợi thực tế:**
   - Tổng số tệp đã tải lên và đối soát toàn vẹn trên Azure Blob Storage: **177 / 177 tệp (100%)**.
   - Tổng số tệp đã giải phóng thành công khỏi bộ nhớ cục bộ BC: **177 / 177 tệp (100%)**.
