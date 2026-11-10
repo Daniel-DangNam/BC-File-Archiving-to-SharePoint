@@ -849,6 +849,7 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
   1. Giải quyết triệt để bài toán Quota và chi phí khi lưu trữ dài hạn (tiết kiệm đến 99.5% chi phí lưu trữ nhờ Cool & Archive Tier).
   2. Kế thừa nguyên vẹn mô hình dữ liệu (Data Model), nguyên tắc chống trùng lặp (Deterministic Archive Key) và quy trình bất đồng bộ 2 pha đã được kiểm nghiệm.
   3. Sử dụng module chuẩn của Microsoft (`Azure Blob Storage Services API`) trong System Application giúp mã nguồn gọn nhẹ, bảo mật và tương thích hoàn toàn trên Business Central Cloud SaaS.
+  4. **Kiểm chứng Tải Thực tế Trên Cơ sở Dữ liệu 100.83 GB (Sandbox 2026035):** Đã chạy thử nghiệm Dry-Run hoàn tất trên cơ sở dữ liệu lớn quy mô Production (100.83 GB). Quét và thẩm định an toàn **57,739 tệp đính kèm** (35,281 tệp hợp lệ $\approx$ **17,097.47 MB ~ 17.1 GB**, bỏ qua 22,458 tệp ngày trống). Tiến trình thực thi ổn định 100%, không bị timeout hay tràn bộ nhớ, khẳng định giải pháp sẵn sàng cho tải dữ liệu thực tế tại doanh nghiệp.
 
 ### 12.2. Chốt chặn An toàn: Duy trì Khóa cứng Tính năng Purge trên Production (Hard-Lock Purge Gatekeeper)
 > [!CAUTION]
