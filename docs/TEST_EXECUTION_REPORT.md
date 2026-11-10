@@ -326,9 +326,12 @@
   - **Hành động thực thi:** `Run Preview / Dry Run` (Chế độ quét thống kê an toàn, 100% Read-Only, không can thiệp, không upload và không xóa dữ liệu).
 - **Kết quả ghi nhận thực tế từ hệ thống (Hộp thoại Dialog Popup):**
   - **Tổng số tệp thỏa điều kiện lưu trữ:** **35,281 tệp**.
-  - **Tổng dung lượng dự kiến giải phóng:** **17,097.47 MB** ($\approx$ **17.1 GB**).
+  - **Tổng dung lượng dự kiến giải phóng:** **17,097.47 MB** ($\approx$ **17.1 GB**). *(Lưu ý quan trọng: Con số 17.1 GB này là dung lượng tính riêng của 35,281 tệp thỏa điều kiện, hoàn toàn chưa bao gồm dung lượng của các tệp bị bỏ qua).*
   - **Số tệp bỏ qua do ngày trống (Strict No-Fallback):** **22,458 tệp**.
   - **Tổng số tệp đính kèm được thẩm định an toàn trong đợt quét:** **57,739 tệp** ($35,281 + 22,458$).
+- **Phân tích Cơ cấu Dữ liệu & Lộ trình Giải phóng 35,281 Tệp:**
+  - **35,281 tệp hợp lệ (17.1 GB):** Là các tệp thuộc các chứng từ đã ghi sổ kế toán hoàn tất (`Posting Date <= 11/10/2026`). Đây là đối tượng trọng tâm sẽ được đưa vào pipeline xử lý (Upload $\rightarrow$ Verify $\rightarrow$ Purge) để thu hồi ngay lập tức 17.1 GB dung lượng đắt đỏ trên Business Central Cloud.
+  - **22,458 tệp tạm thời giữ lại (Strict No-Fallback):** Là các tệp thuộc chứng từ chưa ghi sổ (Unposted/Open Orders) hoặc báo giá/bản nháp chưa phát sinh ngày Post. Hệ thống bảo vệ tuyệt đối không đụng vào nhằm tránh ảnh hưởng công việc kế toán đang diễn ra. Sau này khi các chứng từ này được Post, hoặc khi Admin chuyển đổi quy tắc sang `Document Date` / `Creation Date`, hệ thống sẽ tiếp tục quét và giải phóng nốt phần dung lượng này.
 - **Đánh giá hiệu năng & Giá trị kiến trúc:**
   - **Khả năng chịu tải xuất sắc:** Quét trọn vẹn hơn 57,000 tệp đính kèm trên cơ sở dữ liệu hơn 100 GB mà không bị timeout, không tràn bộ nhớ, không làm gián đoạn hệ thống.
   - **Tiềm năng tối ưu hóa chi phí vượt trội:** Chỉ riêng đợt lưu trữ này dự kiến sẽ giải phóng ngay lập tức **~17.1 GB** dữ liệu nhị phân đính kèm ra khỏi Business Central, giúp doanh nghiệp tiết kiệm đáng kể chi phí vượt ngưỡng dung lượng Database Storage Quota của Microsoft SaaS.
