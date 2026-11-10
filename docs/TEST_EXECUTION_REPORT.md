@@ -314,13 +314,13 @@
 
 ---
 
-## 15. Chi Tiết Thực Nghiệm Khảo Sát Tải Cao Trên Cơ Sở Dữ Liệu Quy Mô Production (Sandbox 2026035 - 100.83 GB)
+## 15. Chi Tiết Thực Nghiệm Khảo Sát Tải Cao Trên Cơ Sở Dữ Liệu Quy Mô Production (Sandbox Sandbox20260305 - 100.83 GB)
 
 - **Bối cảnh & Mục tiêu:**
-  - Nhằm kiểm chứng khả năng xử lý thực tế trên cơ sở dữ liệu lớn trước khi triển khai chính thức lên Production, extension đã được deploy lên môi trường **Sandbox `2026035`** — một bản sao nguyên vẹn của Production với dung lượng dữ liệu lên tới **100.83 GB**.
+  - Nhằm kiểm chứng khả năng xử lý thực tế trên cơ sở dữ liệu lớn trước khi triển khai chính thức lên Production, extension đã được deploy lên môi trường **Sandbox `Sandbox20260305`** — một bản sao nguyên vẹn của Production với dung lượng dữ liệu lên tới **100.83 GB**.
   - Kiểm tra độ ổn định, bộ nhớ (RAM/Heap) và khả năng xử lý hàng chục nghìn chứng từ mà không gây nghẽn máy chủ Cloud của Microsoft.
 - **Dữ liệu & Tham số thực thi:**
-  - **Môi trường:** Sandbox `2026035` (Dung lượng: **100.83 GB**).
+  - **Môi trường:** Sandbox `Sandbox20260305` (Dung lượng: **100.83 GB**).
   - **Quy tắc ngày đánh giá (Date Rule):** `Posting Date`.
   - **Ngày chốt Cut-Off:** `11/10/2026`.
   - **Hành động thực thi:** `Run Preview / Dry Run` (Chế độ quét thống kê an toàn, 100% Read-Only, không can thiệp, không upload và không xóa dữ liệu).
@@ -340,18 +340,38 @@
 
 ---
 
-## 16. Đánh Giá & Kết Luận Tổng Thể
+## 16. Thiết Lập Job Queue Vận Hành Tự Động Theo Mẻ (Batch Processing 500 Tệp / Lượt)
+
+- **Mục tiêu cấu hình:**
+  - Tự động hóa hoàn toàn tiến trình tải lên và đối soát 35,281 tệp từ hàng đợi (`Draft`) lên Azure Blob Storage trên môi trường `Sandbox20260305` mà không cần người dùng thao tác bấm tay liên tục trên giao diện.
+- **Thông số thiết lập Job Queue Entry Card (Page 672):**
+  - **Object Type to Run:** `Codeunit`
+  - **Object ID to Run:** `50141` (`Azure Blob Storage Client`)
+  - **Khai báo Entry Point:** `trigger OnRun()` tự động đọc cấu hình `Batch Size` trong `Archive Setup` và gọi thủ tục `ProcessPendingQueueEntries`.
+  - **Quy mô mẻ (Batch Size):** Cấu hình **`500 tệp / lượt chạy`** (trong `Azure Blob Archive Setup` > ô `Batch Size (per Job Run)` = 500).
+  - **Lịch lặp lại (Recurrence):**
+    - `Recurring Job`: **Yes (Enabled)**.
+    - `Run on`: Thứ 2 đến Chủ nhật (Tất cả các ngày trong tuần).
+    - `No. of Minutes between Runs`: **10 - 15 phút** (hệ thống tự động thức dậy xử lý 500 tệp tiếp theo sau mỗi chu kỳ nghỉ).
+- **Cơ chế Chống Lỗi & Độ Ổn Định (Fault Tolerance & Resilience):**
+  - **Cô lập lỗi theo từng bản ghi (Record Isolation):** Nếu 1 tệp trong mẻ gặp sự cố (mất mạng, tệp nguồn hỏng), hệ thống ghi lỗi vào cột `Last Error Message`, ghi log `VerifyFailed` vào `Archive Audit Log`, tăng `Retry Count` và **lập tức tiếp tục xử lý các tệp tiếp theo mà không làm crash Job Queue**.
+  - **Tối ưu hóa chạy ngầm (Headless Execution):** Mọi lệnh thông báo hộp thoại được kiểm soát qua `if GuiAllowed() then`, ngăn chặn triệt để lỗi chặn phiên làm việc ngầm của Microsoft Cloud.
+  - **Tiến độ dự kiến:** Với 35,281 tệp và tốc độ 500 tệp/mẻ, toàn bộ kho tệp sẽ được hoàn thành upload và verify an toàn sang trạng thái `Verified` trong khoảng **~70 mẻ chạy tự động**.
+
+---
+
+## 17. Đánh Giá & Kết Luận Tổng Thể
 
 - **Tiến độ tổng thể:**
-  - **Hoàn thành xuất sắc 14/14 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9` và đạt chuẩn kiểm thử tải cao trên Sandbox `2026035` (100.83 GB):
+  - **Hoàn thành xuất sắc 14/14 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9` và đạt chuẩn kiểm thử tải cao trên Sandbox `Sandbox20260305` (100.83 GB):
     - **TC-01:** Chế độ Preview / Dry-Run Scanner (Đã kiểm chứng cả trên quy mô nhỏ 121 tệp và quy mô lớn 35,281 tệp).
     - **TC-02:** Kiểm tra kết nối Azure Blob (Test Connection - HTTP 200 OK).
     - **TC-03:** Upload tệp nhỏ & Two-Way Byte-Exact Verification qua HEAD Blob.
     - **TC-04:** Xử lý hàng loạt (Process Batch) tệp lớn ($> 4$ MB) đa định dạng (177/177 tệp `Verified`).
     - **TC-05:** Sanitize đường dẫn & ký tự đặc biệt.
     - **TC-06:** Mở liên kết tệp từ FactBox Incoming Documents (`Open from Azure Blob`).
-    - **TC-07:** Nguyên tắc Cut-Off Date Strict No-Fallback (bỏ qua 56 tệp trên June9 và 22,458 tệp trên 2026035).
-    - **TC-08:** Chốt chặn môi trường & Khóa cứng Purge trên Production (`NotEligible`).
+    - **TC-07:** Nguyên tắc Cut-Off Date Strict No-Fallback (bỏ qua 56 tệp trên June9 và 22,458 tệp trên Sandbox20260305).
+    - **TC-08:** Chốt chặn môi trường & Khóa cứng Purge trên Production `APSS` (`NotEligible`).
     - **TC-09:** Xóa đơn lẻ tệp nhị phân cục bộ (`Purge Selected Binary`) có kiểm tra Shared Media.
     - **TC-10:** Xóa hàng loạt theo mẻ (`Purge Verified Batch`) hoàn tất **177/177 tệp**, giải phóng bộ nhớ BC an toàn 100%.
     - **TC-11:** Trải nghiệm người dùng kế toán trên chứng từ nghiệp vụ gốc (`Sales Quotes`).
@@ -360,7 +380,7 @@
     - **TC-14:** Bắt lỗi êm ái khi sự cố mạng hoặc sai SAS Token (Negative Test - HTTP 403).
 - **Thống kê hàng đợi thực tế:**
   - Trên Sandbox June9: Đã upload, verify và purge thành công **177 / 177 tệp (100%)**, 100% mở xem trực tiếp được.
-  - Trên Sandbox 2026035 (100.83 GB): Khảo sát thành công **35,281 tệp hợp lệ** với dung lượng dự kiến giải phóng là **17,097.47 MB** ($\approx$ **17.1 GB**).
+  - Trên Sandbox Sandbox20260305 (100.83 GB): Khảo sát thành công **35,281 tệp hợp lệ** với dung lượng dự kiến giải phóng là **17,097.47 MB** ($\approx$ **17.1 GB**), thiết lập Job Queue chạy ngầm với mẻ 500 tệp.
 - **Độ tin cậy & Giá trị:**
   - Giải pháp đáp ứng trọn vẹn yêu cầu kiến trúc của Microsoft Dynamics 365 Business Central Cloud SaaS: Chuyển dữ liệu nhị phân lạnh sang Azure Blob Storage (Cool Tier), tiết kiệm **>95% chi phí lưu trữ**, đồng thời bảo toàn trải nghiệm người dùng kế toán 100% không bị gián đoạn.
   - Đã chứng minh năng lực vận hành ổn định trên cơ sở dữ liệu lớn thực tế (> 100 GB). Sẵn sàng triển khai sang môi trường Production khi có phê duyệt mở khóa chính thức từ cấp quản trị.
