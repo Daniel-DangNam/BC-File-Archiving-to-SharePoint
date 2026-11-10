@@ -37,6 +37,15 @@ codeunit 50141 "Azure Blob Storage Client"
         PurgeProdLockedErr: Label 'Safety Guard Violation: Purge is strictly locked and prohibited on Production environments.';
         PurgeEnvNotAuthorizedErr: Label 'Safety Guard Violation: Purge is currently only authorized on Sandbox environment "June9". Current environment: "%1".', Comment = '%1 = Environment Name';
 
+    trigger OnRun()
+    var
+        ArchiveSetup: Record "Archive Setup";
+    begin
+        if not ArchiveSetup.Get() then
+            exit;
+        ProcessPendingQueueEntries(ArchiveSetup."Batch Size");
+    end;
+
     procedure TestConnection(var ArchiveSetup: Record "Archive Setup"): Boolean
     var
         Client: HttpClient;
@@ -203,7 +212,8 @@ codeunit 50141 "Azure Blob Storage Client"
                 Commit();
             end;
 
-        Message(BatchSummaryMsg, SuccessCount, ProcessedCount);
+        if GuiAllowed() then
+            Message(BatchSummaryMsg, SuccessCount, ProcessedCount);
         exit(SuccessCount);
     end;
 
@@ -320,7 +330,8 @@ codeunit 50141 "Azure Blob Storage Client"
                 Commit();
             end;
 
-        Message(PurgeBatchSummaryMsg, SuccessCount, ProcessedCount);
+        if GuiAllowed() then
+            Message(PurgeBatchSummaryMsg, SuccessCount, ProcessedCount);
         exit(SuccessCount);
     end;
 
