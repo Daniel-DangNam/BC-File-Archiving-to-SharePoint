@@ -373,7 +373,7 @@ codeunit 50141 "Azure Blob Storage Client"
         if not EnvironmentInformation.IsSandbox() then
             Error(PurgeProdLockedErr);
         if EnvironmentInformation.GetEnvironmentName() = 'APSS' then
-            Error(PurgeProdLockedErr);
+            Error(PurgeEnvNotAuthorizedErr, EnvironmentInformation.GetEnvironmentName());
     end;
 
     local procedure ExecutePutBlob(
