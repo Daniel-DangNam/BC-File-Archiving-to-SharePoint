@@ -231,16 +231,16 @@ page 50141 "Azure Blob Archive Queue"
             action(PurgeSelected)
             {
                 ApplicationArea = All;
-                Caption = 'Purge Selected Binary (June9 Only)';
+                Caption = 'Purge Selected Binary (Sandbox Only)';
                 Image = Delete;
-                ToolTip = 'Purges the local binary content in BC for the selected verified file. Remote Azure Blob remains fully accessible.';
+                ToolTip = 'Purges the local binary content in BC for the selected verified file on Sandbox. Remote Azure Blob remains fully accessible.';
                 Enabled = (Rec."Archive Status" = Rec."Archive Status"::Verified) and (Rec."Purge Status" <> Rec."Purge Status"::Purged);
 
                 trigger OnAction()
                 var
                     BlobClient: Codeunit "Azure Blob Storage Client";
                 begin
-                    if not Confirm('Are you sure you want to purge local binary data for "%1" on Sandbox June9?\The file has been verified and will remain accessible via Azure Blob Storage.', false, Rec."File Name") then
+                    if not Confirm('Are you sure you want to purge local binary data for "%1" on Sandbox?\The file has been verified and will remain accessible via Azure Blob Storage.', false, Rec."File Name") then
                         exit;
                     BlobClient.PurgeQueueEntry(Rec);
                     CurrPage.Update(false);
@@ -249,9 +249,9 @@ page 50141 "Azure Blob Archive Queue"
             action(PurgeBatch)
             {
                 ApplicationArea = All;
-                Caption = 'Purge Verified Batch (June9 Only)';
+                Caption = 'Purge Verified Batch (Sandbox Only)';
                 Image = Delete;
-                ToolTip = 'Purges local binary content in BC for a batch of verified files on Sandbox June9 to release storage.';
+                ToolTip = 'Purges local binary content in BC for a batch of verified files on Sandbox to release storage.';
 
                 trigger OnAction()
                 var
@@ -259,7 +259,7 @@ page 50141 "Azure Blob Archive Queue"
                     BlobClient: Codeunit "Azure Blob Storage Client";
                 begin
                     ArchiveSetup.Get();
-                    if not Confirm('Are you sure you want to purge local binary data for verified files on Sandbox June9?\All verified files will remain accessible via Azure Blob Storage.', false) then
+                    if not Confirm('Are you sure you want to purge local binary data for verified files on Sandbox?\All verified files will remain accessible via Azure Blob Storage.', false) then
                         exit;
                     BlobClient.PurgeVerifiedQueueEntries(ArchiveSetup."Batch Size");
                     CurrPage.Update(false);

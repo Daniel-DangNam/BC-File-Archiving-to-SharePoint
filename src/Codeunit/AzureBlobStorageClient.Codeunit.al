@@ -33,9 +33,9 @@ codeunit 50141 "Azure Blob Storage Client"
         PurgeSizeMismatchErr: Label 'Purge aborted: Remote size (%1) does not match expected size (%2).', Comment = '%1 = Remote size, %2 = Expected size';
         AuditPurgeSuccessMsg: Label 'Local binary purged in BC for file %1. Remote blob verified on Azure.', Comment = '%1 = File name';
         AuditPurgeProofTxt: Label 'Remote Blob: %1', Comment = '%1 = Blob URL';
-        PurgeBatchSummaryMsg: Label 'Purge completed on Sandbox June9: %1 of %2 verified files purged successfully from local storage.', Comment = '%1 = Success count, %2 = Total count';
-        PurgeProdLockedErr: Label 'Safety Guard Violation: Purge is strictly locked and prohibited on Production environments.';
-        PurgeEnvNotAuthorizedErr: Label 'Safety Guard Violation: Purge is currently only authorized on Sandbox environment "June9". Current environment: "%1".', Comment = '%1 = Environment Name';
+        PurgeBatchSummaryMsg: Label 'Purge completed on Sandbox: %1 of %2 verified files purged successfully from local storage.', Comment = '%1 = Success count, %2 = Total count';
+        PurgeProdLockedErr: Label 'Safety Guard Violation: Purge is strictly locked and prohibited on Production environment (APSS).';
+        PurgeEnvNotAuthorizedErr: Label 'Safety Guard Violation: Purge is strictly locked and prohibited on Production environment "%1".', Comment = '%1 = Environment Name';
 
     trigger OnRun()
     var
@@ -361,7 +361,7 @@ codeunit 50141 "Azure Blob Storage Client"
     begin
         if not EnvironmentInformation.IsSandbox() then
             exit(false);
-        if EnvironmentInformation.GetEnvironmentName() <> 'June9' then
+        if EnvironmentInformation.GetEnvironmentName() = 'APSS' then
             exit(false);
         exit(true);
     end;
@@ -372,8 +372,8 @@ codeunit 50141 "Azure Blob Storage Client"
     begin
         if not EnvironmentInformation.IsSandbox() then
             Error(PurgeProdLockedErr);
-        if EnvironmentInformation.GetEnvironmentName() <> 'June9' then
-            Error(PurgeEnvNotAuthorizedErr, EnvironmentInformation.GetEnvironmentName());
+        if EnvironmentInformation.GetEnvironmentName() = 'APSS' then
+            Error(PurgeProdLockedErr);
     end;
 
     local procedure ExecutePutBlob(
