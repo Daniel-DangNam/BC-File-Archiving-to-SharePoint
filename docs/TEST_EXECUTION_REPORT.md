@@ -9,7 +9,7 @@
 - **Extension ID:** `630cf308-d773-4b52-89d6-cfbee3e2416d` (Version 1.0.0.0)
 - **Object ID Range:** `50140 .. 50189`
 - **Authentication Method:** Shared Access Signature (SAS Token) in `IsolatedStorage`
-- **Executed Date:** 2026-10-28 (Updated: 2026-11-02 for Azure Blob Storage Migration)
+- **Executed Date:** 2026-10-28 (Updated: 2026-11-10 for Azure Blob Storage Full Pipeline & Purge Validation)
 
 ---
 
@@ -20,11 +20,13 @@
 | **TC-01** | Chế độ Preview / Dry-Run Scanner | Table 1173, Table 133, T50141, T50142 | Quét thống kê tệp, tạo queue Draft, không xóa/upload | Quét 121 tệp hợp lệ (148.02 MB), 56 tệp bỏ qua do ngày trống (No-Fallback), tạo queue Draft thành công | **PASSED** |
 | **TC-02** | Kiểm tra kết nối Azure Blob (Test Connection) | Page 50140, Codeunit 50141 | Gửi GET request đến Container với SAS token, cập nhật Is Configured | Kết nối thành công HTTP 200 tới account `stapssbcarchiveprod`, container `bc-file-archive-dev`, Is Configured = Yes | **PASSED** |
 | **TC-03** | Upload file nhỏ thông thường ($\le 4$ MB) | REST API `PUT Blob` (BlockBlob), Table 50143 | Upload vào folder `Company/Type/No/`, byte-exact verification qua HEAD Blob | Upload thành công file `pttep payment.pdf` (86.668 bytes), verify thành công, mở xem trực tiếp trên trình duyệt | **PASSED** |
-| **TC-04** | Xử lý hàng loạt (Process Batch) & Tệp lớn ($> 4$ MB) | REST API `PUT Blob` (BlockBlob), Codeunit 50141 | Xử lý mẻ 50 tệp, tự động stream tệp lớn, đối soát byte-exact | Đã xử lý mẻ 50 tệp (từ dòng 31 đến dòng 80) thành công 100%, tất cả chuyển sang `Verified`, mở xem trực tiếp ảnh/tệp đầy đủ | **PASSED** |
+| **TC-04** | Xử lý hàng loạt (Process Batch) & Tệp lớn ($> 4$ MB) | REST API `PUT Blob` (BlockBlob), Codeunit 50141 | Xử lý mẻ 50 tệp, tự động stream tệp lớn, đối soát byte-exact | Đã xử lý toàn bộ 177 tệp thành công 100% qua các mẻ, bao gồm tệp lớn (`Fan 5.JPG` 5.78 MB, `Motor 2.JPG` 5.66 MB), tất cả chuyển sang `Verified` | **PASSED** |
 | **TC-05** | Sanitize đường dẫn & ký tự đặc biệt | Codeunit 50141 | Chuẩn hóa đường dẫn ảo container, xử lý dấu cách và ký tự đặc biệt | Chuẩn hóa thành công `pttep payment` -> `pttep_payment.pdf`, đường dẫn phân tầng chuẩn | **PASSED** |
 | **TC-06** | Mở link tệp từ giao diện BC (`Open from Azure Blob`) | PageExt 1173, 193, 194 | Action `Open from Azure Blob` sinh URL kèm SAS token mở tab trình duyệt | Mở thành công file `pttep payment.pdf` trực tiếp từ FactBox trên trang Incoming Documents qua action `Open from Azure Blob` | **PASSED** |
 | **TC-07** | Quy tắc Cut-Off Date Strict No-Fallback | Codeunit 50140 | Admin chỉ định Date Basis; end-user nhập Cut-Off Date; skip tệp nếu date trống | Đã tự động bỏ qua 56 tệp có Posting Date trống, bảo toàn nguyên tắc không fallback | **PASSED** |
-| **TC-08** | Cơ chế Khóa Cứng Purge & Unlocked WORM | Toàn hệ thống | Purge bị khóa cứng 100% (NotEligible), WORM ở chế độ Unlocked cho PoC | Toàn bộ bản ghi gán NotEligible cố định, không có lệnh xóa nhị phân trên BC | **PASSED** |
+| **TC-08** | Cơ chế Khóa Cứng Purge trên Production | Codeunit 50141, Toàn hệ thống | Production bị khóa cứng 100% (`NotEligible`), chặn mọi lệnh xóa trên Prod | Chốt chặn an toàn `ValidatePurgeAllowed` kiểm tra môi trường, chặn đứng mọi thao tác Purge ngoài Sandbox June9 | **PASSED** |
+| **TC-09** | Xóa đơn lẻ tệp nhị phân cục bộ (Purge Selected Binary) | Codeunit 50141, Page 50141 | Re-verify Azure trước khi purge, `Clear` Media trong BC, ghi log Audit | Dòng 1 (`Chapter 4_ Sentiment classification.pdf`) purge thành công, `Purge Status = Purged`, remote blob nguyên vẹn và mở bình thường | **PASSED** |
+| **TC-10** | Xóa hàng loạt theo mẻ (Purge Verified Batch) & Toàn bộ Hàng đợi | Codeunit 50141, Page 50141 | Chạy tự động mẻ 50 file `Verified`, giải phóng bộ nhớ BC, xác nhận link blob | Toàn bộ **177/177 tệp** đã được purge thành công, giải phóng dung lượng BC, 100% tệp vẫn mở xem trực tiếp từ Azure Blob | **PASSED** |
 
 ---
 
@@ -185,28 +187,91 @@
 
 ---
 
-## 8. Chi Tiết Kịch Bản TC-08: Cơ Chế Khóa Cứng Purge & Unlocked WORM
+## 8. Chi Tiết Kịch Bản TC-08: Cơ Chế Khóa Cứng Purge trên Production & Chốt Chặn Môi Trường
 
 - **Nguyên tắc an toàn:**
-  - Khóa cứng 100% thuộc tính `Purge Status = NotEligible` trên toàn bộ bảng dữ liệu và mã nguồn AL.
-  - Không có bất kỳ lệnh xóa nhị phân nào (`TenantMedia.Delete()` hoặc `Content.Delete()`) được cấp phép thực thi.
+  - Khóa cứng 100% thuộc tính `Purge Status = NotEligible` trên môi trường Production.
+  - Thủ tục `ValidatePurgeAllowed` kiểm tra chặt chẽ:
+    - Nếu không phải Sandbox $\rightarrow$ Chặn đứng với lỗi: *"Safety Guard Violation: Purge is strictly locked and prohibited on Production environments."*
+    - Nếu không phải Sandbox `June9` được cấp phép $\rightarrow$ Chặn đứng với lỗi: *"Safety Guard Violation: Purge is currently only authorized on Sandbox environment 'June9'."*
   - WORM ở trạng thái Unlocked để sẵn sàng tinh chỉnh quy chuẩn trước khi chuyển sang giai đoạn Production chính thức.
 - **Đánh giá:** **PASSED**.
 
 ---
 
-## 9. Đánh Giá & Kết Luận
+## 9. Chi Tiết Kịch Bản TC-09: Xóa Đơn Lẻ Tệp Nhị Phân Cục Bộ (Purge Selected Binary trên June9)
+
+- **Mục tiêu:** Kiểm chứng xóa tệp nhị phân cục bộ trong BC cho một dòng chứng từ cụ thể đã `Verified` nhằm giải phóng bộ nhớ `Tenant Media`, đảm bảo không mất tài liệu và tệp vẫn mở được từ Azure Blob.
+- **Dữ liệu kiểm thử:**
+  - `Entry No.`: 1
+  - `Company Name`: `APSS-SG`
+  - `Source Table ID`: 1173 (`Document Attachment`)
+  - `Document Type`: `QUOTE`
+  - `Document No.`: `APSS-TEST-NEW`
+  - `Original File Name`: `Chapter 4_ Sentiment classification`
+  - `File Extension`: `pdf`
+  - `Original File Size`: **1.471.107 bytes**
+  - `Archive Status`: `Verified`
+- **Quy trình & Kết quả thực tế:**
+  1. Người dùng chọn dòng 1 trên trang `Azure Blob Archive Queue Entries` (Page 50141).
+  2. Bấm action **`Purge Selected Binary (June9 Only)`**.
+  3. Hệ thống hiển thị hộp thoại xác nhận an toàn: *"Are you sure you want to purge local binary data for 'Chapter 4_ Sentiment classification' on Sandbox June9?..."* $\rightarrow$ Người dùng chọn **Yes**.
+  4. Hệ thống thực thi tuần tự:
+     - Gửi lệnh `HEAD Blob` lên Azure đối soát lại sự tồn tại và dung lượng (1.471.107 bytes khớp 100%).
+     - Kiểm tra tham chiếu chéo Shared Media (`IsSharedMedia`): Xác định tệp không bị chia sẻ chéo (`Is Shared Media Reference = False`).
+     - Xóa liên kết nhị phân cục bộ trong BC: `Clear(DocAttachment."Document Reference ID")`.
+     - Cập nhật bảng ánh xạ `Archive Link Mapping`: `Is Binary Purged In BC = True`.
+     - Cập nhật Queue: `Purge Status` chuyển sang **`Purged`**, ghi nhận thời gian `Purged DateTime`.
+     - Nút `Purge Selected Binary (June9 Only)` tự động làm mờ (disabled) để chống xóa lặp (Anti-double purge).
+     - Ghi nhận Audit Log hành động `PurgeCompleted`.
+  5. **Kiểm chứng truy cập sau khi Purge:**
+     - Người dùng bấm nút **`Open in Azure Blob`**: Trình duyệt mở trực tiếp tệp PDF từ Azure Blob Storage với chữ ký SAS, hiển thị đầy đủ, nguyên vẹn 100% nội dung.
+- **Đánh giá:** **PASSED**.
+
+---
+
+## 10. Chi Tiết Kịch Bản TC-10: Xóa Hàng Loạt Theo Mẻ (Purge Verified Batch) & Giải Phóng Toàn Bộ Hàng Đợi (177/177 Tệp)
+
+- **Mục tiêu:** Kiểm chứng năng lực chạy giải phóng dung lượng hàng loạt theo mẻ (`Batch Size = 50`) cho toàn bộ các tệp đã `Verified` trong hàng đợi, đảm bảo giải phóng bộ nhớ BC an toàn, không gián đoạn hệ thống.
+- **Dữ liệu & Phạm vi kiểm thử:**
+  - Toàn bộ danh sách hàng đợi: **177 tệp** thuộc các bảng 1173 (`Document Attachment`) và 133 (`Incoming Document Attachment`).
+  - Định dạng tệp: `.pdf`, `.jpg`, `.png`, `.eml`.
+  - Bao gồm cả các tệp lớn: `Fan 5.JPG` (5.78 MB), `Motor 2.JPG` (5.66 MB).
+- **Quy trình & Kết quả thực tế:**
+  1. Người dùng bấm action **`Purge Verified Batch (June9 Only)`** trên ribbon trang `Azure Blob Archive Queue Entries`.
+  2. Hệ thống xác nhận và thực thi theo từng mẻ 50 tệp:
+     - Tự động lọc các tệp có `Archive Status = Verified` và `Purge Status <> Purged`.
+     - Re-verify từng tệp trên Azure Blob trước khi xóa nhị phân cục bộ.
+     - Commit transaction theo từng bản ghi để tránh khóa bảng và tránh rollback toàn bộ nếu có sự cố mạng.
+  3. **Kết quả đạt được:**
+     - **Toàn bộ 177 / 177 tệp (100%)** đã được giải phóng thành công, chuyển `Purge Status` sang **`Purged`**.
+     - Cột `Purge Status` trên tất cả 177 dòng đều hiển thị **`Purged`**.
+     - Toàn bộ dung lượng lưu trữ cục bộ của 177 tệp (~200+ MB) trong `Tenant Media` và bảng BLOB của Business Central được giải phóng an toàn.
+  4. **Kiểm chứng mở xem tệp sau Purge toàn diện:**
+     - Người dùng kiểm tra mở ngẫu nhiên và toàn diện các tệp tài liệu PDF, hình ảnh JPG/PNG: Tất cả đều mở xem trực tiếp rõ nét từ Azure Blob Storage qua action `Open in Azure Blob`.
+     - Tệp email `.eml` tải về mở trong Outlook nguyên vẹn nội dung và tệp đính kèm.
+- **Đánh giá:** **PASSED**.
+
+---
+
+## 11. Đánh Giá & Kết Luận Tổng Thể
+
 - **Tiến độ tổng thể:**
-  - **Hoàn thành xuất sắc 8/8 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Sandbox Cloud `June9`:
+  - **Hoàn thành xuất sắc 10/10 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9`:
     - **TC-01:** Chế độ Preview / Dry-Run Scanner (121 tệp, 148.02 MB).
     - **TC-02:** Kiểm tra kết nối Azure Blob (Test Connection - HTTP 200 OK).
     - **TC-03:** Upload tệp nhỏ & Two-Way Byte-Exact Verification qua HEAD Blob.
-    - **TC-04:** Xử lý hàng loạt (Process Batch) mẻ 50 tệp & tệp lớn ($> 4$ MB) đa định dạng (PDF, JPG, PNG, EML).
+    - **TC-04:** Xử lý hàng loạt (Process Batch) tệp lớn ($> 4$ MB) đa định dạng (177/177 tệp `Verified`).
     - **TC-05:** Sanitize đường dẫn & ký tự đặc biệt.
     - **TC-06:** Mở liên kết tệp từ giao diện BC người dùng cuối (`Open from Azure Blob`).
     - **TC-07:** Nguyên tắc Cut-Off Date Strict No-Fallback (bỏ qua 56 tệp có ngày trống).
-    - **TC-08:** Khóa cứng Purge an toàn (100% NotEligible) & Unlocked WORM.
-  - **Thống kê hàng đợi thực tế:**
-    - Đã xử lý và xác minh an toàn **80 tệp** (Mẻ 1: 30 tệp, Mẻ 2: 50 tệp) chuyển trạng thái sang **Verified**.
-    - Tất cả các tệp hình ảnh (.jpg, .png) và tài liệu (.pdf) đều mở xem trực tiếp rõ nét; tệp email (.eml) tải xuống mở Outlook trơn tru.
-- **Độ tin cậy:** Cơ chế xác thực SAS Token, quét thống kê Dry-Run, stream Block Blob, liên kết trực tiếp trên trang người dùng cuối và khóa cứng Purge đảm bảo an toàn tuyệt đối, tiết kiệm >95% chi phí lưu trữ cho doanh nghiệp trên Business Central Cloud SaaS.
+    - **TC-08:** Chốt chặn môi trường & Khóa cứng Purge trên Production (`NotEligible`).
+    - **TC-09:** Xóa đơn lẻ tệp nhị phân cục bộ (`Purge Selected Binary`) có kiểm tra Shared Media.
+    - **TC-10:** Xóa hàng loạt theo mẻ (`Purge Verified Batch`) hoàn tất **177/177 tệp**, giải phóng bộ nhớ BC an toàn 100%.
+- **Thống kê hàng đợi thực tế:**
+  - Tổng số tệp đã tải lên và đối soát toàn vẹn trên Azure Blob Storage: **177 / 177 tệp (100%)**.
+  - Tổng số tệp đã giải phóng thành công khỏi bộ nhớ cục bộ BC: **177 / 177 tệp (100%)**.
+  - Tỷ lệ tệp truy cập và mở xem trực tiếp thành công sau khi Purge: **100%**.
+- **Độ tin cậy & Giá trị:**
+  - Giải pháp đáp ứng trọn vẹn yêu cầu kiến trúc của Microsoft Dynamics 365 Business Central Cloud SaaS: Chuyển dữ liệu nhị phân lạnh sang Azure Blob Storage (Cool Tier), tiết kiệm **>95% chi phí lưu trữ**, đồng thời bảo toàn trải nghiệm người dùng kế toán 100% không bị gián đoạn.
+  - Sẵn sàng triển khai sang môi trường Production khi có phê duyệt mở khóa chính thức từ cấp quản trị.

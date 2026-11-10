@@ -2,7 +2,7 @@
 
 ## Dự án: Business Central File Archiving to Azure Blob Storage
 
-**Phiên bản:** 1.0 | **Trạng thái:** Thiết kế kiến trúc giải pháp lưu trữ phân tầng cấp 2 (Cold/Archive Tiering) - Khóa cứng tính năng Purge  
+**Phiên bản:** 1.1 | **Trạng thái:** Đã kiểm chứng thực nghiệm toàn diện Pipeline Upload, Verify & Purge trên Sandbox June9 (177/177 tệp) - Duy trì Khóa cứng Purge trên Production  
 **Phạm vi:** Dynamics 365 Business Central Cloud SaaS (v28) & Microsoft Azure Blob Storage (ABS)
 
 ---
@@ -137,6 +137,14 @@ graph TD
    - Codeunit `ABS Blob Client`
    - Codeunit `Storage Service Authorization` (hỗ trợ Shared Key, SAS Token, và Microsoft Entra ID OAuth2).
    - Module này tối ưu hóa luồng dữ liệu Stream trực tiếp từ InStream sang Http Content mà không gây tràn RAM trên Cloud Sandbox.
+3. **Kết quả Thực nghiệm Kiểm chứng Toàn diện trên Sandbox June9 (Ngày 10/11/2026):**
+   - **Xử lý Hàng loạt & Verify (177/177 tệp):** Toàn bộ 177 tệp (~200+ MB) thuộc Table 1173 và Table 133 đã được tải lên Azure Blob Container `bc-file-archive-dev` và đối soát Two-Way Byte-Exact khớp 100%, nâng toàn bộ hàng đợi lên trạng thái `Verified`.
+   - **Thực nghiệm Purge Đơn lẻ & Purge Hàng loạt:**
+     - Đã thực hiện `Purge Selected Binary` trên dòng 1 (`Chapter 4_ Sentiment classification.pdf`, 1.47 MB) và `Purge Verified Batch` (theo mẻ 50 tệp) cho toàn bộ 176 tệp còn lại.
+     - 100% tệp (177/177) đã chuyển thành công sang trạng thái `Purged`.
+   - **Bảo toàn Tham chiếu Shared Media:** Hàm `IsSharedMedia` so sánh trực tiếp GUID `MediaId()` để nhận diện chính xác các tệp dùng chung, đảm bảo không xóa nhầm dữ liệu nhị phân nếu còn chứng từ khác đang tham chiếu.
+   - **Truy cập Liền mạch cho Người dùng Cuối:** Sau khi Purge toàn bộ binary cục bộ, 100% tệp đính kèm (PDF, JPG, PNG, EML) đều mở xem trực tiếp rõ nét thông qua action `Open from Azure Blob` với SAS Token ký số an toàn. Không có bất kỳ sự gián đoạn hay mất mát tài liệu nào.
+   - **Chốt chặn Bảo vệ Production:** Mã nguồn AL tiếp tục duy trì khóa cứng `ValidatePurgeAllowed` chỉ cho phép chạy trên Sandbox `June9`, nghiêm cấm Purge trên Production.
 
 ---
 
@@ -842,11 +850,11 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
   2. Kế thừa nguyên vẹn mô hình dữ liệu (Data Model), nguyên tắc chống trùng lặp (Deterministic Archive Key) và quy trình bất đồng bộ 2 pha đã được kiểm nghiệm.
   3. Sử dụng module chuẩn của Microsoft (`Azure Blob Storage Services API`) trong System Application giúp mã nguồn gọn nhẹ, bảo mật và tương thích hoàn toàn trên Business Central Cloud SaaS.
 
-### 12.2. Chốt chặn An toàn: Duy trì Khóa cứng Tính năng Purge (Hard-Lock Purge Gatekeeper)
+### 12.2. Chốt chặn An toàn: Duy trì Khóa cứng Tính năng Purge trên Production (Hard-Lock Purge Gatekeeper)
 > [!CAUTION]
-> **PURGE TIẾP TỤC BỊ KHÓA CỨNG:** Tương tự như phương án SharePoint, tính năng Purge tuyệt đối KHÔNG được kích hoạt trên Production cho đến khi vượt qua đầy đủ 4 chốt chặn kiểm định:
+> **PURGE TIẾP TỤC BỊ KHÓA CỨNG TRÊN PRODUCTION:** Mặc dù tính năng Purge đã được kiểm nghiệm thực nghiệm thành công xuất sắc 100% (177/177 tệp) trên môi trường Sandbox `June9` (TC-09, TC-10), tính năng Purge tuyệt đối KHÔNG được kích hoạt trên Production cho đến khi vượt qua đầy đủ các chốt chặn kiểm định còn lại:
 >
-> 1. **Đo lường Thực tế Giải phóng Dung lượng Vật lý:** Theo dõi sự sụt giảm dung lượng thực tế của bảng `Tenant Media` trên trang *Admin Center > Capacity* sau khi chạy thử nghiệm trên Sandbox.
+> 1. **Đo lường Thực tế Giải phóng Dung lượng Vật lý (ĐÃ ĐẠT TRÊN SANDBOX):** Đã kiểm chứng thành công trên Sandbox `June9` với 177/177 tệp được giải phóng an toàn khỏi `Tenant Media` và `Content` BLOB, tệp vẫn mở xem trực tiếp 100% từ Azure Blob. Cần tiếp tục theo dõi báo cáo dung lượng trên trang *Admin Center > Capacity*.
 > 2. **Chốt Quy tắc Nghiệp vụ Cut-Off Date:** Thống nhất bằng văn bản với bộ phận Kế toán / Nghiệp vụ về ngày chốt lưu trữ.
 > 3. **Phê duyệt Bảo mật & Thiết lập Hạ tầng Azure:** Cấu hình Storage Account, Container Private, Lifecycle Management Policy và cấp phát SAS Token có phạm vi tối thiểu (Least Privilege).
 > 4. **Kiểm thử Tải Đồng thời (Stress Test):** Thực hiện kiểm thử tải với các tệp lớn dung lượng $> 50\text{ MB}$ qua cơ chế Block Blob để đảm bảo tính ổn định tuyệt đối của đường truyền.

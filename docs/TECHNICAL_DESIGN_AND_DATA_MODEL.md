@@ -98,7 +98,7 @@ graph TD
 - **Rủi ro Shared Media:** Một GUID trong `Tenant Media` có thể được nhiều bản ghi `Document Attachment` tham chiếu tới (ví dụ: đính kèm file vào Sales Order, khi Post thì BC tự copy bản ghi sang Posted Sales Invoice nhưng giữ nguyên Media GUID).
 - **Phương thức / API Purge chuẩn được phép dùng:**
   - Gọi `DocumentAttachment."Document Reference ID".Remove()` hoặc `Clear(DocumentAttachment."Document Reference ID")`, sau đó gọi `DocumentAttachment.Modify(false)`.
-  - *Cảnh báo bắt buộc:* Tuyệt đối KHÔNG gọi `DocumentAttachment.Delete()` vì sẽ xóa mất dòng metadata đính kèm trên giao diện BC. Bắt buộc dùng `Modify(false)` để tránh kích hoạt các trigger can thiệp ngoài ý muốn của các extension khác.
+  - _Cảnh báo bắt buộc:_ Tuyệt đối KHÔNG gọi `DocumentAttachment.Delete()` vì sẽ xóa mất dòng metadata đính kèm trên giao diện BC. Bắt buộc dùng `Modify(false)` để tránh kích hoạt các trigger can thiệp ngoài ý muốn của các extension khác.
 
 ### 3.2. Xác minh Table 133 (`Incoming Document Attachment`)
 
@@ -107,7 +107,6 @@ graph TD
 - **Trường chứa tệp nhị phân:** `Content` (kiểu `BLOB`). Không liên kết với `Tenant Media`.
 - **Phương thức / API Purge chuẩn được phép dùng:**
   - Sử dụng Codeunit chuẩn `Incoming Document Attachment Mgt.` hoặc xóa BLOB có kiểm soát bằng cách `Clear(IncomingDocAttachment.Content)` kết hợp cập nhật các trường cờ trạng thái liên quan, sau đó gọi `IncomingDocAttachment.Modify(false)`.
-
 
 ### 3.3. Chiến lược Cut-Off Date (Mở để chốt với Nghiệp vụ)
 
@@ -121,6 +120,7 @@ Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà đư
 
 > [!IMPORTANT]
 > **KẾT QUẢ KIỂM NGHIỆM THỰC TẾ TRÊN TENANT APSS (TEST 2):**
+>
 > - **Kịch bản thực hiện:** Đã đính kèm 1 tệp vào Sales Order `APSS-SO-2404-054` tại công ty **`June9 Asia Pacific Solutions Supply Pte Ltd`**. Khi chuyển đổi ngữ cảnh sang công ty **`June9 APSS Viet Nam Co.,Ltd`**, mở danh sách Sales Order thì **hoàn toàn không tìm thấy** Sales Order `APSS-SO-2404-054` cũng như tệp đính kèm tương ứng.
 > - **Bằng chứng xác nhận:** Dữ liệu chứng từ và file đính kèm được phân vùng hoàn toàn tách biệt giữa các pháp nhân (`DataPerCompany = true`).
 > - **Hệ quả kiến trúc bắt buộc tuân thủ:**
@@ -134,7 +134,6 @@ Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà đư
 
 ---
 
-
 ## 4. BẰNG CHỨNG THỰC NGHIỆM PURGE MEDIA & KIỂM THỬ TIỀN TRIỂN KHAI (POC TRÊN SANDBOX)
 
 > [!WARNING]
@@ -142,14 +141,15 @@ Quy tắc xác định ngày so khớp Cut-off date chưa chốt cứng mà đư
 
 ### 4.1. Báo cáo Kết quả Kiểm thử Tiền Triển khai (Đã Thực nghiệm trên Tenant APSS & Mã nguồn Chuẩn)
 
-| Mã Test | Nội dung Kiểm thử | Thực tế Ghi nhận trên Tenant APSS & Base App v28 | Kết luận Kiến trúc |
-| :---: | :--- | :--- | :--- |
-| **Test 1** | Xác minh dải Object ID trên `Page 9100 "All Objects with Captions"` | Dải `50100 .. 50136` đã có object sử dụng trên tenant. **Từ `50137` trở đi hoàn toàn trống (không có bất kỳ match nào).** | **ĐẠT (PASSED).** Phân bổ và chốt cứng dải ID **`50140 .. 50189`** (50 IDs) trong `app.json`. |
-| **Test 2** | Kiểm chứng phân vùng dữ liệu Đa Pháp nhân (`DataPerCompany`) | Đính kèm file vào Sales Order `APSS-SO-2404-054` tại công ty `June9 Asia Pacific Solutions Supply Pte Ltd`. Chuyển sang công ty `June9 APSS Viet Nam Co.,Ltd` mở danh sách Sales Order: **hoàn toàn không tìm thấy Sales Order và tệp đính kèm**. | **ĐẠT (PASSED).** Xác nhận 100% dữ liệu phân vùng độc lập. Khóa chính `Archive Link Mapping` bắt buộc có `Company Name` và Job Queue bắt buộc gọi `ChangeCompany()`. |
-| **Test 3** | Khảo sát cấu trúc Table 1173 và Cơ chế Shared Media (Order $\rightarrow$ Invoice) | Khảo sát trực tiếp Table 1173 trên tenant APSS qua URL `&table=1173` (hơn 28,198 attachment records). Trường nhị phân `field(8; "Document Reference ID"; Media)` được BC ẩn mặc định trên giao diện bảng generic để bảo vệ dữ liệu.<br>Phân tích mã nguồn chuẩn Microsoft Base App v28 (`DocumentAttachment.Table.al` & Codeunit 80 `Sales-Post`): Khi Post chứng từ, BC gọi `ToDocumentAttachment.TransferFields(FromDocumentAttachment)` $\rightarrow$ sao chép nguyên xi con trỏ Media mà không tạo bản sao trong `Tenant Media`. | **ĐẠT (PASSED).** Xác nhận 100% cơ chế Shared Media Reference. Cần kiểm tra reference count hoặc điều phối dọn dẹp nhị phân theo vòng đời để tránh làm mất file của chứng từ kế thừa. |
-| **Test 4** | Kiểm chứng Phương thức Purge Chuẩn không làm mất Metadata | Kiểm tra hàm chuẩn `HasContent()` trong Table 1173: BC kiểm tra tệp bằng lệnh `"Document Reference ID".HasValue()`. Phương thức purge chuẩn được xác thực: gọi `Clear(DocAttachment."Document Reference ID")` kết hợp `DocAttachment.Modify(false)`. | **ĐẠT (PASSED).** Giải phóng con trỏ Media an toàn mà giữ nguyên 100% các trường metadata (`ID`, `Table ID`, `No.`, `File Name`, `File Extension`, `Attached Date`) trên giao diện người dùng. |
+|  Mã Test   | Nội dung Kiểm thử                                                                 | Thực tế Ghi nhận trên Tenant APSS & Base App v28                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Kết luận Kiến trúc                                                                                                                                                                             |
+| :--------: | :-------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test 1** | Xác minh dải Object ID trên `Page 9100 "All Objects with Captions"`               | Dải `50100 .. 50136` đã có object sử dụng trên tenant. **Từ `50137` trở đi hoàn toàn trống (không có bất kỳ match nào).**                                                                                                                                                                                                                                                                                                                                                                                                            | **ĐẠT (PASSED).** Phân bổ và chốt cứng dải ID **`50140 .. 50189`** (50 IDs) trong `app.json`.                                                                                                  |
+| **Test 2** | Kiểm chứng phân vùng dữ liệu Đa Pháp nhân (`DataPerCompany`)                      | Đính kèm file vào Sales Order `APSS-SO-2404-054` tại công ty `June9 Asia Pacific Solutions Supply Pte Ltd`. Chuyển sang công ty `June9 APSS Viet Nam Co.,Ltd` mở danh sách Sales Order: **hoàn toàn không tìm thấy Sales Order và tệp đính kèm**.                                                                                                                                                                                                                                                                                    | **ĐẠT (PASSED).** Xác nhận 100% dữ liệu phân vùng độc lập. Khóa chính `Archive Link Mapping` bắt buộc có `Company Name` và Job Queue bắt buộc gọi `ChangeCompany()`.                           |
+| **Test 3** | Khảo sát cấu trúc Table 1173 và Cơ chế Shared Media (Order $\rightarrow$ Invoice) | Khảo sát trực tiếp Table 1173 trên tenant APSS qua URL `&table=1173` (hơn 28,198 attachment records). Trường nhị phân `field(8; "Document Reference ID"; Media)` được BC ẩn mặc định trên giao diện bảng generic để bảo vệ dữ liệu.<br>Phân tích mã nguồn chuẩn Microsoft Base App v28 (`DocumentAttachment.Table.al` & Codeunit 80 `Sales-Post`): Khi Post chứng từ, BC gọi `ToDocumentAttachment.TransferFields(FromDocumentAttachment)` $\rightarrow$ sao chép nguyên xi con trỏ Media mà không tạo bản sao trong `Tenant Media`. | **ĐẠT (PASSED).** Xác nhận 100% cơ chế Shared Media Reference. Cần kiểm tra reference count hoặc điều phối dọn dẹp nhị phân theo vòng đời để tránh làm mất file của chứng từ kế thừa.          |
+| **Test 4** | Kiểm chứng Phương thức Purge Chuẩn không làm mất Metadata                         | Kiểm tra hàm chuẩn `HasContent()` trong Table 1173: BC kiểm tra tệp bằng lệnh `"Document Reference ID".HasValue()`. Phương thức purge chuẩn được xác thực: gọi `Clear(DocAttachment."Document Reference ID")` kết hợp `DocAttachment.Modify(false)`.                                                                                                                                                                                                                                                                                 | **ĐẠT (PASSED).** Giải phóng con trỏ Media an toàn mà giữ nguyên 100% các trường metadata (`ID`, `Table ID`, `No.`, `File Name`, `File Extension`, `Attached Date`) trên giao diện người dùng. |
 
 ---
+
 1. **Kịch bản 1: 1 Attachment — 1 Media GUID:** Tạo 1 attachment mới, kiểm tra `Tenant Media` có 1 record. Clear field `Document Reference ID` trên attachment $\rightarrow$ Xác minh xem record trong `Tenant Media` có bị xóa ngay hay chờ background process dọn dẹp.
 2. **Kịch bản 2: Shared Media (Nhiều attachment trỏ vào 1 Media GUID):** Tạo 2 attachment trỏ vào cùng 1 Media GUID. Clear 1 attachment $\rightarrow$ **Xác minh attachment còn lại có bị lỗi không** và `Tenant Media` có bị xóa vội hay không. (Kỳ vọng: Media vẫn còn cho attachment thứ 2).
 3. **Kịch bản 3: Post chứng từ (Copy từ Order sang Invoice):** Đã đặc tả chi tiết tại Test 3 ở trên.
@@ -181,8 +181,6 @@ Do Business Central Cloud SaaS (`Target = Cloud`) không cho phép sử dụng .
 - **Phương án Dự phòng (Nếu chính sách bảo mật bắt buộc dùng Certificate trong tương lai):**
   - Thiết lập dịch vụ ủy quyền trung gian an toàn (như **Azure Function** có gán Managed Identity hoặc liên kết **Azure Key Vault**). BC Extension sẽ gọi qua endpoint nội bộ an toàn của Azure Function để nhận Access Token của Graph API.
 - **Cơ chế thu hồi (Revocation):** Thuộc trách nhiệm của bộ phận quản trị IT. Khi nghi ngờ lộ credential, quản trị viên chỉ cần xóa Secret trên Microsoft Entra ID là toàn bộ tiến trình upload lập tức dừng lại an toàn.
-
-
 
 ---
 
@@ -831,6 +829,7 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
 ## 12. KẾT LUẬN & CHỐT CHẶN TRIỂN KHAI (PURGE HARD-LOCK GATEKEEPER)
 
 ### 12.1. Kết luận Thẩm định Kiến trúc
+
 - **Kết quả nghiệm thu PoC:** Đã xác nhận đầy đủ tính đúng đắn của hướng kiến trúc:
   1. Dải Object ID `50140 .. 50189` sạch 100%, không bị xung đột.
   2. Phân vùng dữ liệu đa pháp nhân `DataPerCompany = true` yêu cầu bắt buộc composite key `("Company Name", "Attachment SystemId")` và lệnh `DocAttachment.ChangeCompany()`.
@@ -845,10 +844,11 @@ Mọi kịch bản phải được kiểm thử đạt 100% trên môi trường
     5. **SharePoint Link Access:** Tích hợp Action `Open from SharePoint` trên Page 1173 và Factbox Page 132/133.
 
 ### 12.2. Chốt chặn An toàn: Duy trì Khóa cứng Tính năng Purge (Hard-Lock Purge Gatekeeper)
+
 > [!CAUTION]
 > **PURGE TIẾP TỤC BỊ KHÓA CỨNG:** Việc lệnh `Clear(Media)` giữ được metadata trên giao diện chưa đồng nghĩa với việc dung lượng lưu trữ trên cơ sở dữ liệu đã được giải phóng vật lý ngay lập tức. Tính năng Purge tuyệt đối KHÔNG được mở trên Production cho đến khi vượt qua đầy đủ 4 chốt chặn bổ sung:
 >
-> 1. **Đo lường Thực tế Giải phóng Dung lượng Vật lý (Physical Storage Measurement):** Cần theo dõi và đo lường sự sụt giảm dung lượng thực tế của bảng `Tenant Media` trên trang *Admin Center > Capacity* sau khi chạy dọn dẹp thử nghiệm trên Sandbox (chờ chu kỳ dọn rác và độ trễ cập nhật số liệu của Microsoft).
+> 1. **Đo lường Thực tế Giải phóng Dung lượng Vật lý (Physical Storage Measurement):** Cần theo dõi và đo lường sự sụt giảm dung lượng thực tế của bảng `Tenant Media` trên trang _Admin Center > Capacity_ sau khi chạy dọn dẹp thử nghiệm trên Sandbox (chờ chu kỳ dọn rác và độ trễ cập nhật số liệu của Microsoft).
 > 2. **Chốt Quy tắc Nghiệp vụ Cut-Off Date:** Thống nhất chính thức bằng văn bản với bộ phận Kế toán / Nghiệp vụ về quy tắc so khớp (chốt ưu tiên `Posting Date` hay `Document Date`).
 > 3. **Phê duyệt Bảo mật & Kiểm tra Thực tế Hạ tầng IT:** Cấu hình và kiểm thử thực tế quyền `Sites.Selected` của App Registration trên đúng Site Collection SharePoint chỉ định cùng Client Secret lưu an toàn trong `IsolatedStorage`.
 > 4. **Kiểm thử Mở rộng & Tải Đồng thời (Stress Test):** Thực hiện thêm các kịch bản kiểm thử với nhiều shared reference phức tạp và nhiều Job Queue chạy đồng thời (concurrent jobs) để đảm bảo không xảy ra race condition hay dead-lock.
