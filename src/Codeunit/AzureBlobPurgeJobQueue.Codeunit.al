@@ -4,8 +4,6 @@ using System.Environment;
 
 codeunit 50142 "Azure Blob Purge Job Queue"
 {
-    Caption = 'Azure Blob Purge Job Queue';
-
     var
         BatchSummaryMsg: Label 'Purge Job Queue Batch completed: %1 of %2 files purged (%3 released). Remaining: %4 files (%5).', Comment = '%1 = Purged count, %2 = Processed count, %3 = Purged bytes formatted, %4 = Remaining count, %5 = Remaining bytes formatted';
         AuditBatchSummaryMsg: Label 'Purge Job Queue Batch: %1 of %2 files purged (%3 released). Before: %4 files (%5). Remaining: %6 files (%7).', Comment = '%1 = Purged count, %2 = Processed count, %3 = Purged bytes formatted, %4 = Initial count, %5 = Initial bytes formatted, %6 = Remaining count, %7 = Remaining bytes formatted';
@@ -30,7 +28,6 @@ codeunit 50142 "Azure Blob Purge Job Queue"
 
     procedure RunPurgeBatch(BatchLimit: Integer): Integer
     var
-        ArchiveSetup: Record "Archive Setup";
         ArchiveQueueEntry: Record "Archive Queue Entry";
         LinkMapping: Record "Archive Link Mapping";
         AuditLog: Record "Archive Audit Log";
@@ -159,3 +156,4 @@ codeunit 50142 "Azure Blob Purge Job Queue"
         exit(StrSubstNo(SizeMBLbl, Round(MB, 0.01)));
     end;
 }
+
