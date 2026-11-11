@@ -17,5 +17,6 @@ permissionset 50140 SPArchivePermSet
         page "Azure Blob Archive Queue" = X,
         page "Azure Blob Archive Audit Logs" = X,
         codeunit "Archive Dry-Run Scanner" = X,
-        codeunit "Azure Blob Storage Client" = X;
+        codeunit "Azure Blob Storage Client" = X,
+        codeunit "Azure Blob Purge Job Queue" = X;
 }

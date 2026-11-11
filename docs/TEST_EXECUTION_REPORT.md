@@ -340,23 +340,31 @@
 
 ---
 
-## 16. Thiết Lập Job Queue Vận Hành Tự Động Theo Mẻ (Batch Processing 500 Tệp / Lượt)
+## 16. Thiết Lập Hệ Thống Job Queue Độc Lập Theo Mẻ (Batch Processing 500 Tệp / Lượt)
 
-- **Mục tiêu cấu hình:**
-  - Tự động hóa hoàn toàn tiến trình tải lên và đối soát 35,281 tệp từ hàng đợi (`Draft`) lên Azure Blob Storage trên môi trường `Sandbox20260305` mà không cần người dùng thao tác bấm tay liên tục trên giao diện.
-- **Thông số thiết lập Job Queue Entry Card (Page 672):**
-  - **Object Type to Run:** `Codeunit`
-  - **Object ID to Run:** `50141` (`Azure Blob Storage Client`)
-  - **Khai báo Entry Point:** `trigger OnRun()` tự động đọc cấu hình `Batch Size` trong `Archive Setup` và gọi thủ tục `ProcessPendingQueueEntries`.
-  - **Quy mô mẻ (Batch Size):** Cấu hình **`500 tệp / lượt chạy`** (trong `Azure Blob Archive Setup` > ô `Batch Size (per Job Run)` = 500).
-  - **Lịch lặp lại (Recurrence):**
-    - `Recurring Job`: **Yes (Enabled)**.
-    - `Run on`: Thứ 2 đến Chủ nhật (Tất cả các ngày trong tuần).
-    - `No. of Minutes between Runs`: **10 - 15 phút** (hệ thống tự động thức dậy xử lý 500 tệp tiếp theo sau mỗi chu kỳ nghỉ).
-- **Cơ chế Chống Lỗi & Độ Ổn Định (Fault Tolerance & Resilience):**
-  - **Cô lập lỗi theo từng bản ghi (Record Isolation):** Nếu 1 tệp trong mẻ gặp sự cố (mất mạng, tệp nguồn hỏng), hệ thống ghi lỗi vào cột `Last Error Message`, ghi log `VerifyFailed` vào `Archive Audit Log`, tăng `Retry Count` và **lập tức tiếp tục xử lý các tệp tiếp theo mà không làm crash Job Queue**.
-  - **Tối ưu hóa chạy ngầm (Headless Execution):** Mọi lệnh thông báo hộp thoại được kiểm soát qua `if GuiAllowed() then`, ngăn chặn triệt để lỗi chặn phiên làm việc ngầm của Microsoft Cloud.
-  - **Tiến độ dự kiến:** Với 35,281 tệp và tốc độ 500 tệp/mẻ, toàn bộ kho tệp sẽ được hoàn thành upload và verify an toàn sang trạng thái `Verified` trong khoảng **~70 mẻ chạy tự động**.
+Nhằm đáp ứng trọn vẹn chỉ thị an toàn của Quản lý Kỹ thuật (Tech Lead), hệ thống tách rời hoàn toàn thành **2 Job Queue độc lập** cho 2 pha riêng biệt:
+
+### 16.1. Upload & Verify Job Queue (Codeunit 50141 "Azure Blob Storage Client")
+- **Chức năng:** Tự động lấy các tệp ở trạng thái `Draft` trong hàng đợi, tải lên Azure Blob Storage và gửi lệnh `HEAD Blob` đối soát byte-exact khớp 100% để chuyển sang `Verified` (gán `Purge Status = Approved` trên Sandbox).
+- **Quy mô mẻ:** 500 tệp / lượt chạy, lặp lại tự động mỗi 10–15 phút.
+- **Tiến độ thực tế:** Đã hoàn tất thành công toàn bộ **35,281 tệp** trên `Sandbox20260305` chuyển sang trạng thái `Verified`.
+
+### 16.2. Dedicated Purge Job Queue (Codeunit 50142 "Azure Blob Purge Job Queue")
+- **Chức năng:** Chuyên biệt hóa toàn bộ tiến trình dọn dẹp và giải phóng dung lượng nhị phân cục bộ trên Business Central theo đúng chuẩn an toàn của Lead:
+  - **Điều kiện sàng lọc nghiêm ngặt (Strict Eligibility Filter):** Chỉ xử lý các bản ghi:
+    1. Đã ở trạng thái `Archive Status = Verified`.
+    2. Có cờ `Purge Status = Approved` (hoặc `PendingApproval`).
+    3. Đã có ánh xạ liên kết hợp lệ trong bảng `Archive Link Mapping` (`Blob Full URL <> ''`).
+    4. Không còn lỗi tồn đọng (`Retry Count < 3`).
+  - **Kiểm tra Đối soát Trước khi Xóa (Pre-Purge HEAD Re-verify):** Gửi request `HEAD Blob` lên Azure xác nhận tệp remote còn nguyên vẹn 100% dung lượng và mã băm thì mới tiến hành `Clear` con trỏ nhị phân trong BC.
+  - **Cơ chế Checkpoint & Pause / Resume:** 
+    - Thực hiện lưu vết chốt chặn (`Commit()`) độc lập sau từng tệp.
+    - Cho phép Quản trị viên tạm dừng (`Set On Hold`) hoặc tiếp tục chạy (`Set Status to Ready`) bất kỳ lúc nào mà không sợ bị lặp hay mất dấu tiến trình.
+  - **Đo lường & Ghi log Số liệu Trước - Sau (Before & After Metrics):**
+    - Đo lường chính xác số tệp và dung lượng chờ purge trước khi chạy mẻ.
+    - Sau khi hoàn thành mẻ 500 tệp, tự động tính toán số tệp/dung lượng đã giải phóng và số tệp/dung lượng còn lại.
+    - Ghi bản ghi kiểm toán tổng kết đầy đủ vào `Archive Audit Log`.
+  - **Chốt chặn Môi trường:** Tự động chặn đứng nếu chạy trên môi trường Production `APSS`. Cấp phép trên các môi trường Sandbox (`June9`, `Sandbox20260305`, `Sandbox20260304`).
 
 ---
 
