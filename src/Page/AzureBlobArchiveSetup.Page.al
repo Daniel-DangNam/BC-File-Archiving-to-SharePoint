@@ -153,6 +153,20 @@ page 50140 "Azure Blob Archive Setup"
                     DryRunScanner.RunDryRun(Rec, WorkDate(), true);
                 end;
             }
+            action(ExportSkippedBreakdown)
+            {
+                ApplicationArea = All;
+                Caption = 'Export Skipped Files Breakdown (CSV)';
+                Image = ExportToExcel;
+                ToolTip = 'Exports a detailed CSV breakdown of all skipped attachments grouped by Source Table ID, Table Name, Document Type, and Skip Reason.';
+
+                trigger OnAction()
+                var
+                    DryRunScanner: Codeunit "Archive Dry-Run Scanner";
+                begin
+                    DryRunScanner.ExportSkippedBreakdownCsv(Rec, WorkDate());
+                end;
+            }
         }
         area(Navigation)
         {
@@ -183,6 +197,9 @@ page 50140 "Azure Blob Archive Setup"
                 {
                 }
                 actionref(RunDryRun_Promoted; RunDryRun)
+                {
+                }
+                actionref(ExportSkippedBreakdown_Promoted; ExportSkippedBreakdown)
                 {
                 }
             }

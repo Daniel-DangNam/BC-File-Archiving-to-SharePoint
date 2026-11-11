@@ -31,6 +31,10 @@ codeunit 50141 "Azure Blob Storage Client"
         CommitBlockListFailedErr: Label 'Commit BlockList failed (HTTP %1): %2', Comment = '%1 = Status, %2 = Details';
         HeadVerifyFailedErr: Label 'HEAD verify failed (HTTP %1): %2', Comment = '%1 = Status, %2 = Details';
         PurgeSizeMismatchErr: Label 'Purge aborted: Remote size (%1) does not match expected size (%2).', Comment = '%1 = Remote size, %2 = Expected size';
+        PurgeHashMissingErr: Label 'Purge aborted: Neither Content-MD5 nor ETag hash was returned by Azure Blob during pre-purge verification.';
+        PurgeMD5MismatchErr: Label 'Purge aborted: Remote Content-MD5 (%1) does not match verified Content-MD5 (%2).', Comment = '%1 = Remote MD5, %2 = Expected MD5';
+        PurgeETagMismatchErr: Label 'Purge aborted: Remote ETag (%1) does not match verified ETag (%2).', Comment = '%1 = Remote ETag, %2 = Expected ETag';
+        PurgeSourceMissingErr: Label 'Purge aborted: Source record no longer exists in Business Central (Table %1, SystemId %2).', Comment = '%1 = Table ID, %2 = SystemId';
         AuditPurgeSuccessMsg: Label 'Local binary purged in BC for file %1. Remote blob verified on Azure.', Comment = '%1 = File name';
         AuditPurgeProofTxt: Label 'Remote Blob: %1', Comment = '%1 = Blob URL';
         PurgeBatchSummaryMsg: Label 'Purge completed on Sandbox: %1 of %2 verified files purged successfully from local storage.', Comment = '%1 = Success count, %2 = Total count';
@@ -146,7 +150,7 @@ codeunit 50141 "Azure Blob Storage Client"
         end;
 
         // Two-way byte-exact verification via HEAD Blob
-        if not VerifyBlobUpload(ArchiveSetup, SanitizedPath, QueueEntry."Original File Size (Bytes)", ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
+        if not VerifyBlobUpload(ArchiveSetup, SanitizedPath, ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
             RecordQueueError(QueueEntry, ErrorMsg);
             exit(false);
         end;
@@ -242,8 +246,8 @@ codeunit 50141 "Azure Blob Storage Client"
         if not ArchiveSetup.Get() then
             Error(SetupNotConfiguredErr);
 
-        // Pre-condition: Re-verify remote blob existence and exact size on Azure before clearing local binary
-        if not VerifyBlobUpload(ArchiveSetup, QueueEntry."Blob Relative Path", QueueEntry."Original File Size (Bytes)", ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
+        // Pre-condition: Re-verify remote blob existence, exact size, and cryptographic hash/ETag on Azure before clearing local binary
+        if not VerifyBlobUpload(ArchiveSetup, QueueEntry."Blob Relative Path", ReturnedSize, ETag, ContentMD5, ErrorMsg) then begin
             RecordQueueError(QueueEntry, 'Purge aborted: Re-verify failed. Remote blob is not accessible on Azure: ' + ErrorMsg);
             exit(false);
         end;
@@ -253,25 +257,51 @@ codeunit 50141 "Azure Blob Storage Client"
             exit(false);
         end;
 
-        // Clear local binary content based on Source Table ID
+        // Verify cryptographic hash / ETag integrity before purge
+        if (ContentMD5 = '') and (ETag = '') then begin
+            RecordQueueError(QueueEntry, PurgeHashMissingErr);
+            exit(false);
+        end;
+
+        if (QueueEntry."Blob Content MD5" <> '') and (ContentMD5 <> '') then
+            if ContentMD5 <> QueueEntry."Blob Content MD5" then begin
+                RecordQueueError(QueueEntry, StrSubstNo(PurgeMD5MismatchErr, ContentMD5, QueueEntry."Blob Content MD5"));
+                exit(false);
+            end;
+
+        if (QueueEntry."Blob ETag" <> '') and (ETag <> '') then
+            if ETag <> QueueEntry."Blob ETag" then begin
+                RecordQueueError(QueueEntry, StrSubstNo(PurgeETagMismatchErr, ETag, QueueEntry."Blob ETag"));
+                exit(false);
+            end;
+
+        // Clear local binary content based on Source Table ID (must fail if source record no longer exists)
         case QueueEntry."Source Table ID" of
             Database::"Document Attachment":
                 begin
                     DocAttachment.ChangeCompany(QueueEntry."Company Name");
-                    if DocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then begin
-                        QueueEntry."Is Shared Media" := IsSharedMedia(DocAttachment);
-                        Clear(DocAttachment."Document Reference ID");
-                        DocAttachment.Modify(false);
+                    if not DocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then begin
+                        RecordQueueError(QueueEntry, StrSubstNo(PurgeSourceMissingErr, QueueEntry."Source Table ID", QueueEntry."Attachment SystemId"));
+                        exit(false);
                     end;
+                    QueueEntry."Is Shared Media" := IsSharedMedia(DocAttachment);
+                    Clear(DocAttachment."Document Reference ID");
+                    DocAttachment.Modify(false);
                 end;
             Database::"Incoming Document Attachment":
                 begin
                     IncDocAttachment.ChangeCompany(QueueEntry."Company Name");
-                    if IncDocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then begin
-                        Clear(IncDocAttachment.Content);
-                        IncDocAttachment.Modify(false);
+                    if not IncDocAttachment.GetBySystemId(QueueEntry."Attachment SystemId") then begin
+                        RecordQueueError(QueueEntry, StrSubstNo(PurgeSourceMissingErr, QueueEntry."Source Table ID", QueueEntry."Attachment SystemId"));
+                        exit(false);
                     end;
+                    Clear(IncDocAttachment.Content);
+                    IncDocAttachment.Modify(false);
                 end;
+            else begin
+                RecordQueueError(QueueEntry, StrSubstNo(PurgeSourceMissingErr, QueueEntry."Source Table ID", QueueEntry."Attachment SystemId"));
+                exit(false);
+            end;
         end;
 
         // Update Link Mapping
@@ -589,7 +619,6 @@ codeunit 50141 "Azure Blob Storage Client"
     local procedure VerifyBlobUpload(
         ArchiveSetup: Record "Archive Setup";
         SanitizedPath: Text;
-        ExpectedSize: BigInteger;
         var OutSize: BigInteger;
         var OutETag: Text[150];
         var OutMD5: Text[64];
@@ -606,6 +635,10 @@ codeunit 50141 "Azure Blob Storage Client"
         SasToken: Text;
         Values: array[1] of Text;
     begin
+        OutSize := 0;
+        OutETag := '';
+        OutMD5 := '';
+
         if not GetSasToken(SasToken) then begin
             OutErrorMsg := SetupNotConfiguredErr;
             exit(false);
@@ -654,10 +687,6 @@ codeunit 50141 "Azure Blob Storage Client"
             ResponseHeaders.GetValues('Content-MD5', Values);
         if Values[1] <> '' then
             OutMD5 := CopyStr(Values[1], 1, MaxStrLen(OutMD5));
-
-        // Fallback: If AL HttpClient on Cloud SaaS omits Content-Length on HEAD response but Azure returned 200 OK and ETag, use ExpectedSize
-        if (OutSize <= 0) and (ExpectedSize > 0) then
-            OutSize := ExpectedSize;
 
         if OutSize <= 0 then begin
             OutErrorMsg := 'Verification failed: Content-Length header not returned or 0.';
@@ -766,6 +795,7 @@ codeunit 50141 "Azure Blob Storage Client"
         Path: Text;
         DocType: Text;
         DocNo: Text;
+        CleanSysId: Text;
         FileName: Text;
     begin
         DocType := SanitizeSegment(QueueEntry."Source Document Type");
@@ -776,7 +806,10 @@ codeunit 50141 "Azure Blob Storage Client"
         if DocNo = '' then
             DocNo := 'NoNumber';
 
+        CleanSysId := DelChr(Format(QueueEntry."Attachment SystemId"), '=', '{}').ToLower();
         FileName := SanitizeFileName(QueueEntry."File Name", QueueEntry."File Extension");
+        if CleanSysId <> '' then
+            FileName := CleanSysId + '_' + FileName;
 
         Path := SanitizeSegment(BaseFolder) + '/' +
                 SanitizeSegment(QueueEntry."Company Name") + '/' +

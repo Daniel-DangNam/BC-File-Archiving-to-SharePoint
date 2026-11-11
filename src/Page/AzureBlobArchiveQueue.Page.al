@@ -161,6 +161,22 @@ page 50141 "Azure Blob Archive Queue"
                     CurrPage.Update(false);
                 end;
             }
+            action(ExportSkippedBreakdown)
+            {
+                ApplicationArea = All;
+                Caption = 'Export Skipped Files Breakdown (CSV)';
+                Image = ExportToExcel;
+                ToolTip = 'Exports a detailed CSV breakdown of all skipped attachments grouped by Source Table ID, Table Name, Document Type, and Skip Reason.';
+
+                trigger OnAction()
+                var
+                    ArchiveSetup: Record "Archive Setup";
+                    DryRunScanner: Codeunit "Archive Dry-Run Scanner";
+                begin
+                    ArchiveSetup.Get();
+                    DryRunScanner.ExportSkippedBreakdownCsv(ArchiveSetup, WorkDate());
+                end;
+            }
             action(UploadToBlob)
             {
                 ApplicationArea = All;
@@ -284,6 +300,9 @@ page 50141 "Azure Blob Archive Queue"
                 Caption = 'Process';
 
                 actionref(RunDryRun_Promoted; RunDryRun)
+                {
+                }
+                actionref(ExportSkippedBreakdown_Promoted; ExportSkippedBreakdown)
                 {
                 }
                 actionref(UploadToBlob_Promoted; UploadToBlob)

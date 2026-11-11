@@ -7,7 +7,9 @@ using Microsoft.Purchases.History;
 using Microsoft.Sales.Document;
 using Microsoft.Sales.History;
 using System.Environment;
+using System.Reflection;
 using System.Security.Encryption;
+using System.Utilities;
 
 codeunit 50140 "Archive Dry-Run Scanner"
 {
@@ -349,10 +351,202 @@ codeunit 50140 "Archive Dry-Run Scanner"
         exit(StrSubstNo(SizeMBLbl, Round(MB, 0.01)));
     end;
 
+    procedure ExportSkippedBreakdownCsv(ArchiveSetup: Record "Archive Setup"; CutOffDate: Date)
+    var
+        DocAttachment: Record "Document Attachment";
+        IncDocAttachment: Record "Incoming Document Attachment";
+        IncomingDocument: Record "Incoming Document";
+        SalesHeader: Record "Sales Header";
+        SalesInvHeader: Record "Sales Invoice Header";
+        SalesCrMemoHeader: Record "Sales Cr.Memo Header";
+        PurchHeader: Record "Purchase Header";
+        PurchInvHeader: Record "Purch. Inv. Header";
+        PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr.";
+        AllObjWithCaption: Record AllObjWithCaption;
+        TempBlob: Codeunit "Temp Blob";
+        CsvOutStream: OutStream;
+        CsvInStream: InStream;
+        TargetCompany: Text[30];
+        EvalDateField: Text[50];
+        EvalDateValue: Date;
+        GroupKey: Text;
+        ReasonText: Text;
+        TableNameText: Text;
+        CountByGroup: Dictionary of [Text, Integer];
+        TableIdByGroup: Dictionary of [Text, Integer];
+        DocTypeByGroup: Dictionary of [Text, Text];
+        ReasonByGroup: Dictionary of [Text, Text];
+        GroupKeys: List of [Text];
+        TotalSkipped: Integer;
+        TargetTableId: Integer;
+        FileName: Text;
+        CrLf: Text[2];
+    begin
+        TargetCompany := CopyStr(CompanyName(), 1, 30);
+        CrLf[1] := 13;
+        CrLf[2] := 10;
+
+        // 1. Evaluate Document Attachment (Table 1173)
+        DocAttachment.ChangeCompany(TargetCompany);
+        DocAttachment.SetFilter("File Name", '<>%1', '');
+        if DocAttachment.FindSet(false) then
+            repeat
+                if not IsDocAttachmentEligible(DocAttachment, TargetCompany, ArchiveSetup."Cut-Off Date Rule", CutOffDate, EvalDateField, EvalDateValue) then
+                    if (CutOffDate <> 0D) and (EvalDateValue = 0D) then begin
+                        ReasonText := GetDocAttachmentSkipReason(
+                            DocAttachment, TargetCompany,
+                            SalesHeader, SalesInvHeader, SalesCrMemoHeader,
+                            PurchHeader, PurchInvHeader, PurchCrMemoHdr);
+                        GroupKey := '1173|' + Format(DocAttachment."Table ID") + '|' + Format(DocAttachment."Document Type") + '|' + ReasonText;
+                        if not CountByGroup.ContainsKey(GroupKey) then begin
+                            GroupKeys.Add(GroupKey);
+                            CountByGroup.Add(GroupKey, 0);
+                            TableIdByGroup.Add(GroupKey, DocAttachment."Table ID");
+                            DocTypeByGroup.Add(GroupKey, Format(DocAttachment."Document Type"));
+                            ReasonByGroup.Add(GroupKey, ReasonText);
+                        end;
+                        CountByGroup.Set(GroupKey, CountByGroup.Get(GroupKey) + 1);
+                        TotalSkipped += 1;
+                    end;
+            until DocAttachment.Next() = 0;
+
+        // 2. Evaluate Incoming Document Attachment (Table 133)
+        IncDocAttachment.ChangeCompany(TargetCompany);
+        if IncDocAttachment.FindSet(false) then
+            repeat
+                if not IsIncomingDocEligible(IncDocAttachment, TargetCompany, ArchiveSetup."Cut-Off Date Rule", CutOffDate, EvalDateField, EvalDateValue) then
+                    if (CutOffDate <> 0D) and (EvalDateValue = 0D) then begin
+                        IncomingDocument.ChangeCompany(TargetCompany);
+                        if IncomingDocument.Get(IncDocAttachment."Incoming Document Entry No.") then begin
+                            if IncomingDocument.Posted then
+                                ReasonText := 'Incoming Document Posted=True but Posting/Document Date is blank'
+                            else
+                                ReasonText := 'Incoming Document Unposted (Posted=False) and Posting/Document Date is blank';
+                        end else
+                            ReasonText := 'Orphaned Incoming Document Attachment (Header Entry No. not found in Table 130)';
+
+                        GroupKey := '133|130|IncomingDoc|' + ReasonText;
+                        if not CountByGroup.ContainsKey(GroupKey) then begin
+                            GroupKeys.Add(GroupKey);
+                            CountByGroup.Add(GroupKey, 0);
+                            TableIdByGroup.Add(GroupKey, Database::"Incoming Document");
+                            DocTypeByGroup.Add(GroupKey, 'Incoming Document');
+                            ReasonByGroup.Add(GroupKey, ReasonText);
+                        end;
+                        CountByGroup.Set(GroupKey, CountByGroup.Get(GroupKey) + 1);
+                        TotalSkipped += 1;
+                    end;
+            until IncDocAttachment.Next() = 0;
+
+        // 3. Generate CSV
+        TempBlob.CreateOutStream(CsvOutStream, TextEncoding::UTF8);
+        CsvOutStream.WriteText('Company,Attachment Table ID,Target Source Table ID,Target Source Table Name,Document Type,Skip Reason,Skipped File Count' + CrLf);
+
+        foreach GroupKey in GroupKeys do begin
+            TargetTableId := TableIdByGroup.Get(GroupKey);
+            TableNameText := 'Unknown Table';
+            if AllObjWithCaption.Get(AllObjWithCaption."Object Type"::Table, TargetTableId) then
+                TableNameText := AllObjWithCaption."Object Name";
+
+            if GroupKey.StartsWith('1173|') then
+                CsvOutStream.WriteText(
+                    StrSubstNo(CsvRow1173Lbl,
+                        TargetCompany,
+                        TargetTableId,
+                        TableNameText,
+                        DocTypeByGroup.Get(GroupKey),
+                        ReasonByGroup.Get(GroupKey),
+                        CountByGroup.Get(GroupKey)) + CrLf)
+            else
+                CsvOutStream.WriteText(
+                    StrSubstNo(CsvRow133Lbl,
+                        TargetCompany,
+                        TargetTableId,
+                        TableNameText,
+                        DocTypeByGroup.Get(GroupKey),
+                        ReasonByGroup.Get(GroupKey),
+                        CountByGroup.Get(GroupKey)) + CrLf);
+        end;
+
+        CsvOutStream.WriteText(StrSubstNo(CsvRowTotalLbl, TargetCompany, TotalSkipped) + CrLf);
+
+        TempBlob.CreateInStream(CsvInStream, TextEncoding::UTF8);
+        FileName := StrSubstNo(SkippedCsvFileNameLbl, DelChr(TargetCompany, '=', ' /\&*'), Format(Today(), 0, '<Year4><Month,2><Day,2>'));
+        DownloadFromStream(CsvInStream, 'Export Skipped Files Breakdown', '', 'CSV Files (*.csv)|*.csv', FileName);
+    end;
+
+    local procedure GetDocAttachmentSkipReason(
+        DocAttachment: Record "Document Attachment";
+        TargetCompany: Text[30];
+        var SalesHeader: Record "Sales Header";
+        var SalesInvHeader: Record "Sales Invoice Header";
+        var SalesCrMemoHeader: Record "Sales Cr.Memo Header";
+        var PurchHeader: Record "Purchase Header";
+        var PurchInvHeader: Record "Purch. Inv. Header";
+        var PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr."): Text
+    begin
+        case DocAttachment."Table ID" of
+            Database::"Sales Header":
+                begin
+                    SalesHeader.ChangeCompany(TargetCompany);
+                    if SalesHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then
+                        exit('Unposted/Open Sales Header with blank date')
+                    else
+                        exit('Orphaned Attachment (Sales Header record not found)');
+                end;
+            Database::"Sales Invoice Header":
+                begin
+                    SalesInvHeader.ChangeCompany(TargetCompany);
+                    if SalesInvHeader.Get(DocAttachment."No.") then
+                        exit('Posted Sales Invoice with blank date')
+                    else
+                        exit('Orphaned Attachment (Sales Invoice Header not found)');
+                end;
+            Database::"Sales Cr.Memo Header":
+                begin
+                    SalesCrMemoHeader.ChangeCompany(TargetCompany);
+                    if SalesCrMemoHeader.Get(DocAttachment."No.") then
+                        exit('Posted Sales Cr.Memo with blank date')
+                    else
+                        exit('Orphaned Attachment (Sales Cr.Memo Header not found)');
+                end;
+            Database::"Purchase Header":
+                begin
+                    PurchHeader.ChangeCompany(TargetCompany);
+                    if PurchHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then
+                        exit('Unposted/Open Purchase Header with blank date')
+                    else
+                        exit('Orphaned Attachment (Purchase Header record not found)');
+                end;
+            Database::"Purch. Inv. Header":
+                begin
+                    PurchInvHeader.ChangeCompany(TargetCompany);
+                    if PurchInvHeader.Get(DocAttachment."No.") then
+                        exit('Posted Purchase Invoice with blank date')
+                    else
+                        exit('Orphaned Attachment (Purch. Inv. Header not found)');
+                end;
+            Database::"Purch. Cr. Memo Hdr.":
+                begin
+                    PurchCrMemoHdr.ChangeCompany(TargetCompany);
+                    if PurchCrMemoHdr.Get(DocAttachment."No.") then
+                        exit('Posted Purchase Cr.Memo with blank date')
+                    else
+                        exit('Orphaned Attachment (Purch. Cr. Memo Hdr. not found)');
+                end;
+            else
+                exit('Unsupported Source Table ID (Not mapped in Sales/Purchase date evaluator)');
+        end;
+    end;
+
     var
         SummaryMsg: Label 'Preview / Dry-Run hoàn tất:\- Tổng số tệp thỏa điều kiện: %1\- Tổng dung lượng dự kiến giải phóng: %2\- Ngày Cut-off: %3\- Số tệp bỏ qua do ngày trống (No-Fallback): %4\(Lưu ý: Chế độ Dry-Run chỉ quét thống kê, không upload và không xóa bất kỳ dữ liệu nào trên BC).', Comment = '%1 = File count, %2 = Formatted size, %3 = Cut-off date, %4 = Skipped count';
         PreviewLogMsg: Label 'Preview scan completed: %1 eligible files, %2 bytes evaluated. Skipped empty date: %3.', Comment = '%1 = File count, %2 = Bytes, %3 = Skipped count';
         VerificationProofTxt: Label 'Cut-Off Date: %1, Rule: %2', Comment = '%1 = Date, %2 = Rule';
         SizeKBLbl: Label '%1 KB', Comment = '%1 = Kilobytes';
         SizeMBLbl: Label '%1 MB', Comment = '%1 = Megabytes';
+        CsvRow1173Lbl: Label '"%1",1173,%2,"%3","%4","%5",%6', Locked = true;
+        CsvRow133Lbl: Label '"%1",133,%2,"%3","%4","%5",%6', Locked = true;
+        CsvRowTotalLbl: Label '"%1",TOTAL,0,"ALL SKIPPED FILES","ALL","Total Skipped (Blank Date / Strict No-Fallback)",%2', Locked = true;
+        SkippedCsvFileNameLbl: Label 'SkippedFilesBreakdown_%1_%2.csv', Locked = true;
 }
