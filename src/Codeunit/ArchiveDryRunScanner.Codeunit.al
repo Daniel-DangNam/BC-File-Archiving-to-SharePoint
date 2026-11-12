@@ -257,7 +257,7 @@ codeunit 50140 "Archive Dry-Run Scanner"
                                     OutDateField := 'Document Date (Sales Quote)';
                                     OutDateValue := SalesHeader."Document Date";
                                 end;
-                        end else begin
+                        end else
                             // Orders / Invoices: Follow configured Cut-Off Rule
                             if CutOffRule = CutOffRule::"Posting Date" then begin
                                 OutDateField := 'Posting Date';
@@ -266,7 +266,6 @@ codeunit 50140 "Archive Dry-Run Scanner"
                                 OutDateField := 'Document Date';
                                 OutDateValue := SalesHeader."Document Date";
                             end;
-                        end;
                 end;
 
             // 2. Sales Line (Table 37) - Trace back to Sales Header
@@ -431,11 +430,9 @@ codeunit 50140 "Archive Dry-Run Scanner"
             Database::Vendor,
             Database::Item,
             Database::Opportunity:
-                begin
-                    if DocAttachment.SystemCreatedAt <> 0DT then begin
-                        OutDateField := 'Attachment SystemCreatedAt';
-                        OutDateValue := DT2Date(DocAttachment.SystemCreatedAt);
-                    end;
+                if DocAttachment.SystemCreatedAt <> 0DT then begin
+                    OutDateField := 'Attachment SystemCreatedAt';
+                    OutDateValue := DT2Date(DocAttachment.SystemCreatedAt);
                 end;
 
             // 13. Unknown / Table ID 0 / Unsupported -> Strictly Skip
@@ -646,12 +643,10 @@ codeunit 50140 "Archive Dry-Run Scanner"
             Database::Vendor,
             Database::Item,
             Database::Opportunity:
-                begin
-                    if DocAttachment.SystemCreatedAt = 0DT then
-                        exit('Master Data record with blank SystemCreatedAt')
-                    else
-                        exit('Master Data attachment newer than cut-off date');
-                end;
+                if DocAttachment.SystemCreatedAt = 0DT then
+                    exit('Master Data record with blank SystemCreatedAt')
+                else
+                    exit('Master Data attachment newer than cut-off date');
             Database::"Sales Line",
             Database::"Purchase Line",
             Database::"Sales Invoice Line",
