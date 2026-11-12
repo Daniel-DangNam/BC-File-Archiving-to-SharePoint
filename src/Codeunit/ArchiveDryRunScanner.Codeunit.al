@@ -1,9 +1,13 @@
 namespace APSS.FileArchiving;
 
+using Microsoft.CRM.Opportunity;
 using Microsoft.EServices.EDocument;
 using Microsoft.Foundation.Attachment;
+using Microsoft.Inventory.Item;
 using Microsoft.Purchases.Document;
 using Microsoft.Purchases.History;
+using Microsoft.Purchases.Vendor;
+using Microsoft.Sales.Customer;
 using Microsoft.Sales.Document;
 using Microsoft.Sales.History;
 using System.Environment;
@@ -219,74 +223,226 @@ codeunit 50140 "Archive Dry-Run Scanner"
         var OutDateValue: Date)
     var
         SalesHeader: Record "Sales Header";
+        SalesLine: Record "Sales Line";
         SalesInvHeader: Record "Sales Invoice Header";
+        SalesInvLine: Record "Sales Invoice Line";
         SalesCrMemoHeader: Record "Sales Cr.Memo Header";
         PurchHeader: Record "Purchase Header";
+        PurchLine: Record "Purchase Line";
         PurchInvHeader: Record "Purch. Inv. Header";
+        PurchInvLine: Record "Purch. Inv. Line";
         PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr.";
+        PurchRcptHeader: Record "Purch. Rcpt. Header";
     begin
         OutDateValue := 0D;
-
-        if CutOffRule = CutOffRule::"Posting Date" then
-            OutDateField := 'Posting Date'
-        else
-            OutDateField := 'Document Date';
+        OutDateField := '';
 
         case DocAttachment."Table ID" of
+            // 1. Sales Header (Table 36) - Deterministic per Document Type
             Database::"Sales Header":
                 begin
                     SalesHeader.ChangeCompany(TargetCompany);
                     if SalesHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then
-                        if CutOffRule = CutOffRule::"Posting Date" then
-                            OutDateValue := SalesHeader."Posting Date"
-                        else
-                            OutDateValue := SalesHeader."Document Date";
+                        if DocAttachment."Document Type" = DocAttachment."Document Type"::Quote then begin
+                            // Sales Quote rule: Use Posting Date; if blank fallback to Document Date only when Quote is old / inactive
+                            if SalesHeader."Posting Date" <> 0D then begin
+                                OutDateField := 'Posting Date (Sales Quote)';
+                                OutDateValue := SalesHeader."Posting Date";
+                            end else
+                                if (SalesHeader."Document Date" <> 0D) and
+                                   ((SalesHeader.Status = SalesHeader.Status::"Pending Approval") or
+                                    (SalesHeader.Status = SalesHeader.Status::Open) or
+                                    (SalesHeader."Due Date" <> 0D))
+                                then begin
+                                    OutDateField := 'Document Date (Sales Quote)';
+                                    OutDateValue := SalesHeader."Document Date";
+                                end;
+                        end else begin
+                            // Orders / Invoices: Follow configured Cut-Off Rule
+                            if CutOffRule = CutOffRule::"Posting Date" then begin
+                                OutDateField := 'Posting Date';
+                                OutDateValue := SalesHeader."Posting Date";
+                            end else begin
+                                OutDateField := 'Document Date';
+                                OutDateValue := SalesHeader."Document Date";
+                            end;
+                        end;
                 end;
+
+            // 2. Sales Line (Table 37) - Trace back to Sales Header
+            Database::"Sales Line":
+                begin
+                    SalesLine.ChangeCompany(TargetCompany);
+                    if SalesLine.Get(DocAttachment."Document Type", DocAttachment."No.", DocAttachment."Line No.") then begin
+                        SalesHeader.ChangeCompany(TargetCompany);
+                        if SalesHeader.Get(SalesLine."Document Type", SalesLine."Document No.") then begin
+                            if CutOffRule = CutOffRule::"Posting Date" then begin
+                                OutDateField := 'Sales Line -> Header Posting Date';
+                                OutDateValue := SalesHeader."Posting Date";
+                            end else begin
+                                OutDateField := 'Sales Line -> Header Document Date';
+                                OutDateValue := SalesHeader."Document Date";
+                            end;
+                            if (OutDateValue = 0D) and (DocAttachment."Document Type" = DocAttachment."Document Type"::Quote) then begin
+                                OutDateField := 'Sales Line -> Quote Document Date';
+                                OutDateValue := SalesHeader."Document Date";
+                            end;
+                        end;
+                    end;
+                end;
+
+            // 3. Sales Invoice Header (Table 112)
             Database::"Sales Invoice Header":
                 begin
                     SalesInvHeader.ChangeCompany(TargetCompany);
                     if SalesInvHeader.Get(DocAttachment."No.") then
-                        if CutOffRule = CutOffRule::"Posting Date" then
-                            OutDateValue := SalesInvHeader."Posting Date"
-                        else
+                        if CutOffRule = CutOffRule::"Posting Date" then begin
+                            OutDateField := 'Posting Date';
+                            OutDateValue := SalesInvHeader."Posting Date";
+                        end else begin
+                            OutDateField := 'Document Date';
                             OutDateValue := SalesInvHeader."Document Date";
+                        end;
                 end;
+
+            // 4. Sales Invoice Line (Table 113) - Trace back to Sales Invoice Header
+            Database::"Sales Invoice Line":
+                begin
+                    SalesInvLine.ChangeCompany(TargetCompany);
+                    if SalesInvLine.Get(DocAttachment."No.", DocAttachment."Line No.") then begin
+                        SalesInvHeader.ChangeCompany(TargetCompany);
+                        if SalesInvHeader.Get(SalesInvLine."Document No.") then
+                            if CutOffRule = CutOffRule::"Posting Date" then begin
+                                OutDateField := 'Sales Inv Line -> Header Posting Date';
+                                OutDateValue := SalesInvHeader."Posting Date";
+                            end else begin
+                                OutDateField := 'Sales Inv Line -> Header Document Date';
+                                OutDateValue := SalesInvHeader."Document Date";
+                            end;
+                    end;
+                end;
+
+            // 5. Sales Cr.Memo Header (Table 114)
             Database::"Sales Cr.Memo Header":
                 begin
                     SalesCrMemoHeader.ChangeCompany(TargetCompany);
                     if SalesCrMemoHeader.Get(DocAttachment."No.") then
-                        if CutOffRule = CutOffRule::"Posting Date" then
-                            OutDateValue := SalesCrMemoHeader."Posting Date"
-                        else
+                        if CutOffRule = CutOffRule::"Posting Date" then begin
+                            OutDateField := 'Posting Date';
+                            OutDateValue := SalesCrMemoHeader."Posting Date";
+                        end else begin
+                            OutDateField := 'Document Date';
                             OutDateValue := SalesCrMemoHeader."Document Date";
+                        end;
                 end;
+
+            // 6. Purchase Header (Table 38)
             Database::"Purchase Header":
                 begin
                     PurchHeader.ChangeCompany(TargetCompany);
                     if PurchHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then
-                        if CutOffRule = CutOffRule::"Posting Date" then
-                            OutDateValue := PurchHeader."Posting Date"
-                        else
+                        if CutOffRule = CutOffRule::"Posting Date" then begin
+                            OutDateField := 'Posting Date';
+                            OutDateValue := PurchHeader."Posting Date";
+                        end else begin
+                            OutDateField := 'Document Date';
                             OutDateValue := PurchHeader."Document Date";
+                        end;
                 end;
+
+            // 7. Purchase Line (Table 39) - Trace back to Purchase Header
+            Database::"Purchase Line":
+                begin
+                    PurchLine.ChangeCompany(TargetCompany);
+                    if PurchLine.Get(DocAttachment."Document Type", DocAttachment."No.", DocAttachment."Line No.") then begin
+                        PurchHeader.ChangeCompany(TargetCompany);
+                        if PurchHeader.Get(PurchLine."Document Type", PurchLine."Document No.") then
+                            if CutOffRule = CutOffRule::"Posting Date" then begin
+                                OutDateField := 'Purch Line -> Header Posting Date';
+                                OutDateValue := PurchHeader."Posting Date";
+                            end else begin
+                                OutDateField := 'Purch Line -> Header Document Date';
+                                OutDateValue := PurchHeader."Document Date";
+                            end;
+                    end;
+                end;
+
+            // 8. Purch. Inv. Header (Table 122)
             Database::"Purch. Inv. Header":
                 begin
                     PurchInvHeader.ChangeCompany(TargetCompany);
                     if PurchInvHeader.Get(DocAttachment."No.") then
-                        if CutOffRule = CutOffRule::"Posting Date" then
-                            OutDateValue := PurchInvHeader."Posting Date"
-                        else
+                        if CutOffRule = CutOffRule::"Posting Date" then begin
+                            OutDateField := 'Posting Date';
+                            OutDateValue := PurchInvHeader."Posting Date";
+                        end else begin
+                            OutDateField := 'Document Date';
                             OutDateValue := PurchInvHeader."Document Date";
+                        end;
                 end;
+
+            // 9. Purch. Inv. Line (Table 123) - Trace back to Purch. Inv. Header
+            Database::"Purch. Inv. Line":
+                begin
+                    PurchInvLine.ChangeCompany(TargetCompany);
+                    if PurchInvLine.Get(DocAttachment."No.", DocAttachment."Line No.") then begin
+                        PurchInvHeader.ChangeCompany(TargetCompany);
+                        if PurchInvHeader.Get(PurchInvLine."Document No.") then
+                            if CutOffRule = CutOffRule::"Posting Date" then begin
+                                OutDateField := 'Purch Inv Line -> Header Posting Date';
+                                OutDateValue := PurchInvHeader."Posting Date";
+                            end else begin
+                                OutDateField := 'Purch Inv Line -> Header Document Date';
+                                OutDateValue := PurchInvHeader."Document Date";
+                            end;
+                    end;
+                end;
+
+            // 10. Purch. Cr. Memo Hdr. (Table 124)
             Database::"Purch. Cr. Memo Hdr.":
                 begin
                     PurchCrMemoHdr.ChangeCompany(TargetCompany);
                     if PurchCrMemoHdr.Get(DocAttachment."No.") then
-                        if CutOffRule = CutOffRule::"Posting Date" then
-                            OutDateValue := PurchCrMemoHdr."Posting Date"
-                        else
+                        if CutOffRule = CutOffRule::"Posting Date" then begin
+                            OutDateField := 'Posting Date';
+                            OutDateValue := PurchCrMemoHdr."Posting Date";
+                        end else begin
+                            OutDateField := 'Document Date';
                             OutDateValue := PurchCrMemoHdr."Document Date";
+                        end;
                 end;
+
+            // 11. Purch. Rcpt. Header (Table 120)
+            Database::"Purch. Rcpt. Header":
+                begin
+                    PurchRcptHeader.ChangeCompany(TargetCompany);
+                    if PurchRcptHeader.Get(DocAttachment."No.") then
+                        if CutOffRule = CutOffRule::"Posting Date" then begin
+                            OutDateField := 'Posting Date';
+                            OutDateValue := PurchRcptHeader."Posting Date";
+                        end else begin
+                            OutDateField := 'Document Date';
+                            OutDateValue := PurchRcptHeader."Document Date";
+                        end;
+                end;
+
+            // 12. Master Data: Customer (Table 18), Vendor (Table 23), Item (Table 27), Opportunity (Table 5092)
+            Database::Customer,
+            Database::Vendor,
+            Database::Item,
+            Database::Opportunity:
+                begin
+                    if DocAttachment.SystemCreatedAt <> 0DT then begin
+                        OutDateField := 'Attachment SystemCreatedAt';
+                        OutDateValue := DT2Date(DocAttachment.SystemCreatedAt);
+                    end;
+                end;
+
+            // 13. Unknown / Table ID 0 / Unsupported -> Strictly Skip
+            else begin
+                OutDateField := 'Unsupported Table ID (Skipped)';
+                OutDateValue := 0D;
+            end;
         end;
     end;
 
@@ -486,6 +642,24 @@ codeunit 50140 "Archive Dry-Run Scanner"
         var PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr."): Text
     begin
         case DocAttachment."Table ID" of
+            Database::Customer,
+            Database::Vendor,
+            Database::Item,
+            Database::Opportunity:
+                begin
+                    if DocAttachment.SystemCreatedAt = 0DT then
+                        exit('Master Data record with blank SystemCreatedAt')
+                    else
+                        exit('Master Data attachment newer than cut-off date');
+                end;
+            Database::"Sales Line",
+            Database::"Purchase Line",
+            Database::"Sales Invoice Line",
+            Database::"Purch. Inv. Line",
+            Database::"Purch. Rcpt. Header":
+                exit('Line attachment whose parent header date is blank or missing');
+            0:
+                exit('Orphaned attachment with Table ID 0 (Unknown Table)');
             Database::"Sales Header":
                 begin
                     SalesHeader.ChangeCompany(TargetCompany);
