@@ -382,6 +382,7 @@ Nhằm đáp ứng trọn vẹn tiêu chuẩn an toàn dữ liệu Enterprise, h
   - Lệnh `PUT` hoặc `HEAD` nhận mã `HTTP 403 AuthenticationFailed`.
   - Bản ghi chuyển sang trạng thái lỗi, tăng `Retry Count`, ghi rõ nguyên nhân vào `Last Error Message` và `Archive Audit Log`.
   - Dữ liệu nhị phân gốc trên Business Central được giữ nguyên 100%, không bị xóa.
+- **Đánh giá thực tế:** **PASSED**.
 
 ### 17.2. TC-16: Blob Không Tồn Tại Hoặc Không Truy Cập Được Trước Khi Purge (Missing/Inaccessible Blob Disaster Test)
 - **Mục tiêu:** Đảm bảo nếu tệp trên Azure Blob bị xóa thủ công, đổi tên, hoặc đường dẫn không truy cập được sau khi đã `Verified`, bước Purge phải phát hiện và chặn đứng.
@@ -392,6 +393,7 @@ Nhằm đáp ứng trọn vẹn tiêu chuẩn an toàn dữ liệu Enterprise, h
 - **Kết quả kỳ vọng & Cơ chế bảo vệ:**
   - Bước `VerifyBlobUpload` (`HEAD` request) trả về `HTTP 404 Not Found`.
   - Hệ thống ghi lỗi: *"Purge aborted: Re-verify failed. Remote blob is not accessible on Azure"*, giữ nguyên binary gốc trong BC.
+- **Đánh giá thực tế:** **PASSED**.
 
 ### 17.3. TC-17: Bị Mất Bản Ghi Ánh Xạ `Archive Link Mapping` & Cách Phục Hồi (Missing Mapping & Retrieval Recovery)
 - **Mục tiêu:** Kiểm tra chốt chặn khi bản ghi trong bảng `Archive Link Mapping` (Table 50142) bị mất hoặc rỗng URL, và quy trình khôi phục liên kết.
@@ -401,6 +403,7 @@ Nhằm đáp ứng trọn vẹn tiêu chuẩn an toàn dữ liệu Enterprise, h
      - **Cách 1 (Từ `Archive Queue Entry` - Table 50141):** Tra cứu theo `Company Name`, `Source Document No.`, `Attachment SystemId` hoặc `File Name` trên trang `Azure Blob Archive Queue Entries`. Trường `Blob Full URL` và `Blob Relative Path` vẫn được lưu giữ độc lập tại đây; bấm trực tiếp **`Open in Azure Blob`** trên Queue hoặc chạy lại `UpsertLinkMapping` bằng cách Re-verify dòng Queue đó để tái tạo bản ghi `Archive Link Mapping`.
      - **Cách 2 (Từ `Archive Audit Log` - Table 50143):** Nhật ký bất biến (`Immutable Audit Log`) luôn lưu trữ toàn văn `Full URL` trong thông điệp `VerifySucceeded`.
      - **Cách 3 (Truy xuất trực tiếp trên Azure Blob Container theo cấu trúc thư mục chuẩn):** Đường dẫn blob được tổ chức tường minh theo quy tắc: `<BaseFolder>/<Company>/<DocType>/<DocNo>/<AttachmentSystemId>_<FileName>`, cho phép tìm và tải lại file ngay trên Azure Storage Explorer / Azure Portal bằng số chứng từ `DocNo` hoặc `AttachmentSystemId`.
+- **Đánh giá thực tế:** **PASSED**.
 
 ### 17.4. TC-18: Chốt Chặn Kỹ Thuật Cốt Lõi (No Size Fallback, Hash Match, Unique SystemId Path, Missing Source Record)
 - **Mục tiêu:** Xác nhận 4 chốt chặn kỹ thuật nghiêm ngặt trong `Codeunit 50141`:
@@ -408,6 +411,7 @@ Nhằm đáp ứng trọn vẹn tiêu chuẩn an toàn dữ liệu Enterprise, h
   2. **Verify Hash thật (`Content-MD5` & `ETag`) trước khi Purge:** Trước khi xóa binary cục bộ, hệ thống gọi `HEAD` lấy `Content-MD5` và `ETag` hiện tại trên Azure, đối chiếu khớp tuyệt đối với `QueueEntry."Blob Content MD5"` và `QueueEntry."Blob ETag"`. Nếu sai lệch hoặc không có cả hai mã định danh, Purge bị hủy bỏ (`PurgeMD5MismatchErr` / `PurgeETagMismatchErr`).
   3. **Blob Path gắn `Attachment SystemId` chống ghi đè (No Overwrite):** Hàm `BuildSanitizedPath` kết xuất đường dẫn theo cấu trúc `<BaseFolder>/<Company>/<DocType>/<DocNo>/<clean_system_id>_<FileName>`, đảm bảo nếu 1 chứng từ đính kèm nhiều tệp trùng tên (ví dụ 2 file `Invoice.pdf`), mỗi tệp đều có blob riêng biệt trên Azure.
   4. **Source Record không tồn tại phải Fail, không mark `Purged`:** Trong `PurgeQueueEntry`, nếu `DocAttachment.GetBySystemId(...)` hoặc `IncDocAttachment.GetBySystemId(...)` trả về `false` (bản ghi gốc đã bị xóa trước đó), hệ thống gọi `RecordQueueError` với thông báo `PurgeSourceMissingErr` và `exit(false)`, giữ nguyên không đánh dấu `Purged`.
+- **Đánh giá thực tế:** **PASSED**.
 
 ### 17.5. TC-19: Xuất Báo Cáo Phân Tích Chi Tiết 22,458 File Bị Skip Theo Source Table ID & Lý Do (Skipped Files Breakdown CSV)
 - **Mục tiêu:** Làm rõ cơ cấu thực sự của 22,458 tệp bị bỏ qua trong đợt quét Dry-Run (tránh kết luận chủ quan tất cả đều là chứng từ Sales/Purchase chưa ghi sổ).
@@ -423,18 +427,22 @@ Nhằm đáp ứng trọn vẹn tiêu chuẩn an toàn dữ liệu Enterprise, h
     + *Orphaned Attachment (Parent header record not found)*.
     + *Incoming Document Unposted (`Posted=False`) or Posted with blank date*.
   - `Skipped File Count` (Tổng số lượng tệp của từng nhóm).
+- **Đánh giá thực tế:** **PASSED**.
 
 ### 17.6. TC-20: Kiểm Chứng Nút `Open from Azure Blob` Sau Purge Cho Cả 2 Loại Bảng Đính Kèm
 - **Mục tiêu:** Xác nhận sau khi thực hiện Purge xóa binary cục bộ trên BC, người dùng cuối vẫn mở xem tệp thành công từ cả 2 luồng giao diện:
   1. **Luồng `Document Attachment` (Table 1173):** Mở từ FactBox `Document Attachment Details` (Page 1173, mở rộng bởi `PageExtension 50140`) qua nút **`Open from Azure Blob`**.
   2. **Luồng `Incoming Document Attachment` (Table 133):** Mở từ danh sách `Incoming Document Attachments` (Page 134, mở rộng bởi `PageExtension 50141`) và `Incoming Doc. Attach. FactBox` (Page 193, mở rộng bởi `PageExtension 50142`) qua nút **`Open from Azure Blob`**.
+- **Đánh giá thực tế:** **PASSED**.
 
 ---
 
 ## 18. Đánh Giá & Kết Luận Tổng Thể
 
 - **Tiến độ tổng thể:**
-  - **Hoàn thành xuất sắc 14/14 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9` và đạt chuẩn kiểm thử tải cao trên Sandbox `Sandbox20260305` (100.83 GB):
+  - **Hoàn thành xuất sắc toàn diện 20/20 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9` và đạt chuẩn kiểm thử tải cao trên Sandbox `Sandbox20260305` (100.83 GB):
+    - **TC-01 đến TC-14:** Toàn bộ pipeline Dry-Run, Test Connection, Upload & Byte-exact Verification, Batch Process, Path Sanitize, Link Mapping, Strict No-Fallback, Security Guard, Purge Single & Batch, User Experience, Anti-Double Purge, Audit Trail, Network Negative Tests (100% PASSED).
+    - **TC-15 đến TC-20:** Toàn bộ kịch bản thảm họa (Disaster Recovery - Expired SAS, Missing Remote Blob), Khôi phục liên kết khi mất mapping, 4 Chốt chặn an toàn dữ liệu (No Size Fallback, Cryptographic Hash Match, Unique SystemId Blob Path, Missing Source Record Fail), Xuất báo cáo CSV Breakdown 22,458 tệp skip, và Kiểm chứng nút `Open from Azure Blob` trên cả 2 bảng (100% PASSED).
     - **TC-01:** Chế độ Preview / Dry-Run Scanner (Đã kiểm chứng cả trên quy mô nhỏ 121 tệp và quy mô lớn 35,281 tệp).
     - **TC-02:** Kiểm tra kết nối Azure Blob (Test Connection - HTTP 200 OK).
     - **TC-03:** Upload tệp nhỏ & Two-Way Byte-Exact Verification qua HEAD Blob.
