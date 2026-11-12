@@ -167,6 +167,20 @@ page 50140 "Azure Blob Archive Setup"
                     DryRunScanner.ExportSkippedBreakdownCsv(Rec, WorkDate());
                 end;
             }
+            action(ExportDateFieldBreakdown)
+            {
+                ApplicationArea = All;
+                Caption = 'Export Date Field Availability Breakdown (CSV)';
+                Image = AnalysisView;
+                ToolTip = 'Exports a matrix breakdown of skipped files evaluating availability of Document Date, Order Date, Attachment SystemCreatedAt, and Header SystemCreatedAt with file counts and sizes.';
+
+                trigger OnAction()
+                var
+                    DryRunScanner: Codeunit "Archive Dry-Run Scanner";
+                begin
+                    DryRunScanner.ExportDateFieldBreakdownCsv(Rec, WorkDate());
+                end;
+            }
         }
         area(Navigation)
         {
@@ -200,6 +214,9 @@ page 50140 "Azure Blob Archive Setup"
                 {
                 }
                 actionref(ExportSkippedBreakdown_Promoted; ExportSkippedBreakdown)
+                {
+                }
+                actionref(ExportDateFieldBreakdown_Promoted; ExportDateFieldBreakdown)
                 {
                 }
             }

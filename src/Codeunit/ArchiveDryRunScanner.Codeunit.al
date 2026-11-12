@@ -539,6 +539,241 @@ codeunit 50140 "Archive Dry-Run Scanner"
         end;
     end;
 
+    procedure ExportDateFieldBreakdownCsv(ArchiveSetup: Record "Archive Setup"; CutOffDate: Date)
+    var
+        DocAttachment: Record "Document Attachment";
+        IncDocAttachment: Record "Incoming Document Attachment";
+        IncomingDocument: Record "Incoming Document";
+        SalesHeader: Record "Sales Header";
+        SalesInvHeader: Record "Sales Invoice Header";
+        SalesCrMemoHeader: Record "Sales Cr.Memo Header";
+        PurchHeader: Record "Purchase Header";
+        PurchInvHeader: Record "Purch. Inv. Header";
+        PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr.";
+        TenantMedia: Record "Tenant Media";
+        AllObjWithCaption: Record AllObjWithCaption;
+        TempBlob: Codeunit "Temp Blob";
+        CsvOutStream: OutStream;
+        CsvInStream: InStream;
+        TargetCompany: Text[30];
+        EvalDateField: Text[50];
+        EvalDateValue: Date;
+        GroupKey: Text;
+        TableNameText: Text;
+        HasDocDate: Boolean;
+        HasOrderDate: Boolean;
+        HasAttachCreated: Boolean;
+        HasHeaderCreated: Boolean;
+        FileSize: BigInteger;
+        CountByGroup: Dictionary of [Text, Integer];
+        BytesByGroup: Dictionary of [Text, BigInteger];
+        TableIdByGroup: Dictionary of [Text, Integer];
+        DocTypeByGroup: Dictionary of [Text, Text];
+        HasDocDateByGroup: Dictionary of [Text, Boolean];
+        HasOrderDateByGroup: Dictionary of [Text, Boolean];
+        HasAttachCreatedByGroup: Dictionary of [Text, Boolean];
+        HasHeaderCreatedByGroup: Dictionary of [Text, Boolean];
+        GroupKeys: List of [Text];
+        TotalSkipped: Integer;
+        TotalBytes: BigInteger;
+        TargetTableId: Integer;
+        FileName: Text;
+        CrLf: Text[2];
+        DecMB: Decimal;
+        TotalDecMB: Decimal;
+    begin
+        TargetCompany := CopyStr(CompanyName(), 1, 30);
+        CrLf[1] := 13;
+        CrLf[2] := 10;
+
+        // 1. Scan Table 1173 (Document Attachment)
+        DocAttachment.ChangeCompany(TargetCompany);
+        DocAttachment.SetFilter("File Name", '<>%1', '');
+        if DocAttachment.FindSet(false) then
+            repeat
+                if not IsDocAttachmentEligible(DocAttachment, TargetCompany, ArchiveSetup."Cut-Off Date Rule", CutOffDate, EvalDateField, EvalDateValue) then
+                    if (CutOffDate <> 0D) and (EvalDateValue = 0D) then begin
+                        FileSize := 0;
+                        if TenantMedia.Get(DocAttachment."Document Reference ID".MediaId()) then begin
+                            TenantMedia.CalcFields(Content);
+                            FileSize := TenantMedia.Content.Length();
+                        end;
+
+                        HasDocDate := false;
+                        HasOrderDate := false;
+                        HasAttachCreated := DocAttachment.SystemCreatedAt <> 0DT;
+                        HasHeaderCreated := false;
+
+                        case DocAttachment."Table ID" of
+                            Database::"Sales Header":
+                                begin
+                                    SalesHeader.ChangeCompany(TargetCompany);
+                                    if SalesHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then begin
+                                        HasDocDate := SalesHeader."Document Date" <> 0D;
+                                        HasOrderDate := SalesHeader."Order Date" <> 0D;
+                                        HasHeaderCreated := SalesHeader.SystemCreatedAt <> 0DT;
+                                    end;
+                                end;
+                            Database::"Sales Invoice Header":
+                                begin
+                                    SalesInvHeader.ChangeCompany(TargetCompany);
+                                    if SalesInvHeader.Get(DocAttachment."No.") then begin
+                                        HasDocDate := SalesInvHeader."Document Date" <> 0D;
+                                        HasOrderDate := SalesInvHeader."Order Date" <> 0D;
+                                        HasHeaderCreated := SalesInvHeader.SystemCreatedAt <> 0DT;
+                                    end;
+                                end;
+                            Database::"Sales Cr.Memo Header":
+                                begin
+                                    SalesCrMemoHeader.ChangeCompany(TargetCompany);
+                                    if SalesCrMemoHeader.Get(DocAttachment."No.") then begin
+                                        HasDocDate := SalesCrMemoHeader."Document Date" <> 0D;
+                                        HasHeaderCreated := SalesCrMemoHeader.SystemCreatedAt <> 0DT;
+                                    end;
+                                end;
+                            Database::"Purchase Header":
+                                begin
+                                    PurchHeader.ChangeCompany(TargetCompany);
+                                    if PurchHeader.Get(DocAttachment."Document Type", DocAttachment."No.") then begin
+                                        HasDocDate := PurchHeader."Document Date" <> 0D;
+                                        HasOrderDate := PurchHeader."Order Date" <> 0D;
+                                        HasHeaderCreated := PurchHeader.SystemCreatedAt <> 0DT;
+                                    end;
+                                end;
+                            Database::"Purch. Inv. Header":
+                                begin
+                                    PurchInvHeader.ChangeCompany(TargetCompany);
+                                    if PurchInvHeader.Get(DocAttachment."No.") then begin
+                                        HasDocDate := PurchInvHeader."Document Date" <> 0D;
+                                        HasOrderDate := PurchInvHeader."Order Date" <> 0D;
+                                        HasHeaderCreated := PurchInvHeader.SystemCreatedAt <> 0DT;
+                                    end;
+                                end;
+                            Database::"Purch. Cr. Memo Hdr.":
+                                begin
+                                    PurchCrMemoHdr.ChangeCompany(TargetCompany);
+                                    if PurchCrMemoHdr.Get(DocAttachment."No.") then begin
+                                        HasDocDate := PurchCrMemoHdr."Document Date" <> 0D;
+                                        HasHeaderCreated := PurchCrMemoHdr.SystemCreatedAt <> 0DT;
+                                    end;
+                                end;
+                        end;
+
+                        GroupKey := '1173|' + Format(DocAttachment."Table ID") + '|' + Format(DocAttachment."Document Type") + '|' +
+                                    Format(HasDocDate) + '|' + Format(HasOrderDate) + '|' + Format(HasAttachCreated) + '|' + Format(HasHeaderCreated);
+
+                        if not CountByGroup.ContainsKey(GroupKey) then begin
+                            GroupKeys.Add(GroupKey);
+                            CountByGroup.Add(GroupKey, 0);
+                            BytesByGroup.Add(GroupKey, 0);
+                            TableIdByGroup.Add(GroupKey, DocAttachment."Table ID");
+                            DocTypeByGroup.Add(GroupKey, Format(DocAttachment."Document Type"));
+                            HasDocDateByGroup.Add(GroupKey, HasDocDate);
+                            HasOrderDateByGroup.Add(GroupKey, HasOrderDate);
+                            HasAttachCreatedByGroup.Add(GroupKey, HasAttachCreated);
+                            HasHeaderCreatedByGroup.Add(GroupKey, HasHeaderCreated);
+                        end;
+                        CountByGroup.Set(GroupKey, CountByGroup.Get(GroupKey) + 1);
+                        BytesByGroup.Set(GroupKey, BytesByGroup.Get(GroupKey) + FileSize);
+                        TotalSkipped += 1;
+                        TotalBytes += FileSize;
+                    end;
+            until DocAttachment.Next() = 0;
+
+        // 2. Scan Table 133 (Incoming Document Attachment)
+        IncDocAttachment.ChangeCompany(TargetCompany);
+        if IncDocAttachment.FindSet(false) then
+            repeat
+                if not IsIncomingDocEligible(IncDocAttachment, TargetCompany, ArchiveSetup."Cut-Off Date Rule", CutOffDate, EvalDateField, EvalDateValue) then
+                    if (CutOffDate <> 0D) and (EvalDateValue = 0D) then begin
+                        IncDocAttachment.CalcFields(Content);
+                        FileSize := IncDocAttachment.Content.Length();
+
+                        HasDocDate := false;
+                        HasOrderDate := false;
+                        HasAttachCreated := IncDocAttachment.SystemCreatedAt <> 0DT;
+                        HasHeaderCreated := false;
+
+                        IncomingDocument.ChangeCompany(TargetCompany);
+                        if IncomingDocument.Get(IncDocAttachment."Incoming Document Entry No.") then begin
+                            HasDocDate := IncomingDocument."Document Date" <> 0D;
+                            HasHeaderCreated := IncomingDocument.SystemCreatedAt <> 0DT;
+                        end;
+
+                        GroupKey := '133|130|IncomingDoc|' +
+                                    Format(HasDocDate) + '|' + Format(HasOrderDate) + '|' + Format(HasAttachCreated) + '|' + Format(HasHeaderCreated);
+
+                        if not CountByGroup.ContainsKey(GroupKey) then begin
+                            GroupKeys.Add(GroupKey);
+                            CountByGroup.Add(GroupKey, 0);
+                            BytesByGroup.Add(GroupKey, 0);
+                            TableIdByGroup.Add(GroupKey, Database::"Incoming Document");
+                            DocTypeByGroup.Add(GroupKey, 'Incoming Document');
+                            HasDocDateByGroup.Add(GroupKey, HasDocDate);
+                            HasOrderDateByGroup.Add(GroupKey, HasOrderDate);
+                            HasAttachCreatedByGroup.Add(GroupKey, HasAttachCreated);
+                            HasHeaderCreatedByGroup.Add(GroupKey, HasHeaderCreated);
+                        end;
+                        CountByGroup.Set(GroupKey, CountByGroup.Get(GroupKey) + 1);
+                        BytesByGroup.Set(GroupKey, BytesByGroup.Get(GroupKey) + FileSize);
+                        TotalSkipped += 1;
+                        TotalBytes += FileSize;
+                    end;
+            until IncDocAttachment.Next() = 0;
+
+        // 3. Render CSV Output
+        TempBlob.CreateOutStream(CsvOutStream, TextEncoding::UTF8);
+        CsvOutStream.WriteText(CsvDateMatrixHeaderLbl + CrLf);
+
+        foreach GroupKey in GroupKeys do begin
+            TargetTableId := TableIdByGroup.Get(GroupKey);
+            TableNameText := 'Unknown Table';
+            if AllObjWithCaption.Get(AllObjWithCaption."Object Type"::Table, TargetTableId) then
+                TableNameText := AllObjWithCaption."Object Name";
+
+            DecMB := Round(BytesByGroup.Get(GroupKey) / 1048576, 0.01);
+
+            if GroupKey.StartsWith('1173|') then
+                CsvOutStream.WriteText(
+                    StrSubstNo(CsvDateMatrixRowLbl,
+                        TargetCompany,
+                        1173,
+                        TargetTableId,
+                        TableNameText,
+                        DocTypeByGroup.Get(GroupKey),
+                        HasDocDateByGroup.Get(GroupKey),
+                        HasOrderDateByGroup.Get(GroupKey),
+                        HasAttachCreatedByGroup.Get(GroupKey),
+                        HasHeaderCreatedByGroup.Get(GroupKey),
+                        CountByGroup.Get(GroupKey),
+                        BytesByGroup.Get(GroupKey),
+                        DecMB) + CrLf)
+            else
+                CsvOutStream.WriteText(
+                    StrSubstNo(CsvDateMatrixRowLbl,
+                        TargetCompany,
+                        133,
+                        TargetTableId,
+                        TableNameText,
+                        DocTypeByGroup.Get(GroupKey),
+                        HasDocDateByGroup.Get(GroupKey),
+                        HasOrderDateByGroup.Get(GroupKey),
+                        HasAttachCreatedByGroup.Get(GroupKey),
+                        HasHeaderCreatedByGroup.Get(GroupKey),
+                        CountByGroup.Get(GroupKey),
+                        BytesByGroup.Get(GroupKey),
+                        DecMB) + CrLf);
+        end;
+
+        TotalDecMB := Round(TotalBytes / 1048576, 0.01);
+        CsvOutStream.WriteText(
+            StrSubstNo(CsvDateMatrixTotalLbl, TargetCompany, TotalSkipped, TotalBytes, TotalDecMB) + CrLf);
+
+        TempBlob.CreateInStream(CsvInStream, TextEncoding::UTF8);
+        FileName := StrSubstNo(DateFieldBreakdownCsvFileNameLbl, DelChr(TargetCompany, '=', ' /\&*'), Format(Today(), 0, '<Year4><Month,2><Day,2>'));
+        DownloadFromStream(CsvInStream, 'Export Date Field Availability Breakdown', '', 'CSV Files (*.csv)|*.csv', FileName);
+    end;
+
     var
         SummaryMsg: Label 'Preview / Dry-Run hoàn tất:\- Tổng số tệp thỏa điều kiện: %1\- Tổng dung lượng dự kiến giải phóng: %2\- Ngày Cut-off: %3\- Số tệp bỏ qua do ngày trống (No-Fallback): %4\(Lưu ý: Chế độ Dry-Run chỉ quét thống kê, không upload và không xóa bất kỳ dữ liệu nào trên BC).', Comment = '%1 = File count, %2 = Formatted size, %3 = Cut-off date, %4 = Skipped count';
         PreviewLogMsg: Label 'Preview scan completed: %1 eligible files, %2 bytes evaluated. Skipped empty date: %3.', Comment = '%1 = File count, %2 = Bytes, %3 = Skipped count';
@@ -549,4 +784,8 @@ codeunit 50140 "Archive Dry-Run Scanner"
         CsvRow133Lbl: Label '"%1",133,%2,"%3","%4","%5",%6', Locked = true;
         CsvRowTotalLbl: Label '"%1",TOTAL,0,"ALL SKIPPED FILES","ALL","Total Skipped (Blank Date / Strict No-Fallback)",%2', Locked = true;
         SkippedCsvFileNameLbl: Label 'SkippedFilesBreakdown_%1_%2.csv', Locked = true;
+        DateFieldBreakdownCsvFileNameLbl: Label 'SkippedDateFieldBreakdown_%1_%2.csv', Locked = true;
+        CsvDateMatrixHeaderLbl: Label 'Company,Attachment Table ID,Target Source Table ID,Target Source Table Name,Document Type,Has Document Date,Has Order/Quote Date,Has Attachment SystemCreatedAt,Has Header SystemCreatedAt,Skipped File Count,Total Size (Bytes),Total Size (MB)', Locked = true;
+        CsvDateMatrixRowLbl: Label '"%1",%2,%3,"%4","%5",%6,%7,%8,%9,%10,%11,%12', Locked = true;
+        CsvDateMatrixTotalLbl: Label '"%1",TOTAL,0,"ALL SKIPPED FILES","ALL",-,-,-,-,%2,%3,%4', Locked = true;
 }
