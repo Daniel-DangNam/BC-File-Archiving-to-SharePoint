@@ -823,6 +823,9 @@ codeunit 50141 "Azure Blob Storage Client"
         if Path.StartsWith('/') then
             Path := CopyStr(Path, 2);
 
+        // Azure Blob REST API restriction: Blob path must never end with a period or space
+        Path := DelChr(Path, '>', '. ');
+
         exit(Path);
     end;
 
