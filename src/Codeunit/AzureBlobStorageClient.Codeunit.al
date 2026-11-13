@@ -831,12 +831,43 @@ codeunit 50141 "Azure Blob Storage Client"
 
     local procedure SanitizeSegment(InputText: Text): Text
     var
+        CleanBuilder: TextBuilder;
+        i: Integer;
+        c: Char;
         Result: Text;
     begin
-        Result := DelChr(InputText, '=', '~"#%&*:<>?\/|{}');
-        Result := DelChr(Result, '<>', ' .');
-        Result := Result.Replace('..', '_');
-        Result := Result.Replace(' ', '_');
+        if InputText = '' then
+            exit('');
+
+        // Strict POSIX / Azure Blob URI character filtering: only alphanumeric, hyphen, underscore
+        for i := 1 to StrLen(InputText) do begin
+            c := InputText[i];
+            case c of
+                'a' .. 'z', 'A' .. 'Z', '0' .. '9':
+                    CleanBuilder.Append(c);
+                '-', '_':
+                    CleanBuilder.Append(c);
+                else
+                    CleanBuilder.Append('_');
+            end;
+        end;
+
+        Result := CleanBuilder.ToText();
+
+        // Collapse consecutive underscores or hyphens
+        while Result.Contains('__') do
+            Result := Result.Replace('__', '_');
+        while Result.Contains('--') do
+            Result := Result.Replace('--', '-');
+        while Result.Contains('-_') or Result.Contains('_-') do begin
+            Result := Result.Replace('-_', '_');
+            Result := Result.Replace('_-', '_');
+        end;
+
+        Result := DelChr(Result, '<>', '_-');
+        if Result = '' then
+            Result := 'item';
+
         exit(Result);
     end;
 
