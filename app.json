@@ -2,7 +2,7 @@
   "id": "630cf308-d773-4b52-89d6-cfbee3e2416d",
   "name": "BC File Archiving to SharePoint",
   "publisher": "APSS",
-  "version": "1.0.0.5",
+  "version": "1.0.0.6",
   "brief": "Archive files from Business Central to SharePoint",
   "description": "Business Central AL extension to archive, upload, and link documents/attachments to Microsoft SharePoint.",
   "privacyStatement": "",

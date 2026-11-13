@@ -865,9 +865,14 @@ codeunit 50141 "Azure Blob Storage Client"
         CleanName := SanitizeSegment(FileName);
         CleanExt := SanitizeSegment(Extension);
 
-        if CleanExt <> '' then
+        if CleanExt <> '' then begin
             if not CleanName.EndsWith('.' + CleanExt) then
                 CleanName := CleanName + '.' + CleanExt;
+        end else
+            CleanName := DelChr(CleanName, '>', '. _');
+
+        if CleanName = '' then
+            CleanName := 'Unnamed_Attachment';
 
         exit(CleanName);
     end;
