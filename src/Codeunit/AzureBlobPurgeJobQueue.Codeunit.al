@@ -42,7 +42,8 @@ codeunit 50142 "Azure Blob Purge Job Queue"
         PurgedCount: Integer;
         PurgedBytes: BigInteger;
     begin
-        // Environment Guard: Strictly blocked on Production APSS
+        // Permission & Environment Guard: Admin only, strictly blocked on Production APSS
+        BlobClient.ValidateAdminPermission();
         BlobClient.ValidatePurgeAllowed();
 
         if BatchLimit <= 0 then

@@ -73,4 +73,11 @@ page 50142 "Azure Blob Archive Audit Logs"
             }
         }
     }
+
+    trigger OnOpenPage()
+    var
+        BlobClient: Codeunit "Azure Blob Storage Client";
+    begin
+        BlobClient.ValidateAdminPermission();
+    end;
 }

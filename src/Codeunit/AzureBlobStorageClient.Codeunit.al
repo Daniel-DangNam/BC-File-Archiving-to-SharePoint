@@ -3,6 +3,7 @@ namespace APSS.FileArchiving;
 using Microsoft.EServices.EDocument;
 using Microsoft.Foundation.Attachment;
 using System.Environment;
+using System.Security.AccessControl;
 using System.Text;
 using System.Utilities;
 
@@ -40,6 +41,10 @@ codeunit 50141 "Azure Blob Storage Client"
         PurgeBatchSummaryMsg: Label 'Purge completed on Sandbox: %1 of %2 verified files purged successfully from local storage.', Comment = '%1 = Success count, %2 = Total count';
         PurgeProdLockedErr: Label 'Safety Guard Violation: Purge is strictly locked and prohibited on Production environment (APSS).';
         PurgeEnvNotAuthorizedErr: Label 'Safety Guard Violation: Purge is strictly locked and prohibited on Production environment "%1".', Comment = '%1 = Environment Name';
+        AdminPermissionErr: Label 'Access Denied: Only authorized Azure Blob Archive Admins or configured Approvers can perform this action.';
+        InvalidSasTokenFormatErr: Label 'Invalid SAS Token format in IsolatedStorage. Ensure a valid Azure SAS token containing sv= and sig= is configured.';
+        AdminPermSetRoleLbl: Label 'SPARCHIVEPERMSET', Locked = true;
+        SuperRoleLbl: Label 'SUPER', Locked = true;
 
     trigger OnRun()
     var
@@ -56,20 +61,21 @@ codeunit 50141 "Azure Blob Storage Client"
         Request: HttpRequestMessage;
         Response: HttpResponseMessage;
         Headers: HttpHeaders;
+        BaseUrl: Text;
         Url: Text;
         ResponseText: Text;
-        SasToken: Text;
+        ErrorMsg: Text;
     begin
+        ValidateAdminPermission();
+
         if (ArchiveSetup."Storage Account Name" = '') or (ArchiveSetup."Container Name" = '') then
             Error(SetupNotConfiguredErr);
 
         ValidateEnvironmentGuard(ArchiveSetup);
 
-        if not GetSasToken(SasToken) then
-            Error(SetupNotConfiguredErr);
-
-        Url := StrSubstNo(ContainerTestUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name");
-        Url := AppendSasToken(Url, SasToken);
+        BaseUrl := StrSubstNo(ContainerTestUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name");
+        if not BuildAuthenticatedBlobUrl(BaseUrl, Url, ErrorMsg) then
+            Error(ErrorMsg);
         Request.SetRequestUri(Url);
         Request.Method := 'GET';
         Request.GetHeaders(Headers);
@@ -106,6 +112,8 @@ codeunit 50141 "Azure Blob Storage Client"
         ReturnedSize: BigInteger;
         ErrorMsg: Text;
     begin
+        ValidateAdminPermission();
+
         if not ArchiveSetup.Get() then
             Error(SetupNotConfiguredErr);
 
@@ -193,6 +201,8 @@ codeunit 50141 "Azure Blob Storage Client"
         ProcessedCount: Integer;
         SuccessCount: Integer;
     begin
+        ValidateAdminPermission();
+
         if BatchLimit <= 0 then
             BatchLimit := 50;
 
@@ -233,6 +243,7 @@ codeunit 50141 "Azure Blob Storage Client"
         ErrorMsg: Text;
         AuditMsg: Text;
     begin
+        ValidateAdminPermission();
         ValidatePurgeAllowed();
 
         if QueueEntry."Archive Status" <> QueueEntry."Archive Status"::Verified then begin
@@ -338,6 +349,7 @@ codeunit 50141 "Azure Blob Storage Client"
         ProcessedCount: Integer;
         SuccessCount: Integer;
     begin
+        ValidateAdminPermission();
         ValidatePurgeAllowed();
 
         if BatchLimit <= 0 then
@@ -424,18 +436,13 @@ codeunit 50141 "Azure Blob Storage Client"
         Content: HttpContent;
         Url: Text;
         ResponseText: Text;
-        SasToken: Text;
         TierName: Text;
         ResponseHeaders: HttpHeaders;
         Values: array[1] of Text;
     begin
-        if not GetSasToken(SasToken) then begin
-            OutErrorMsg := SetupNotConfiguredErr;
-            exit(false);
-        end;
-
         OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
-        Url := AppendSasToken(OutFullUrl, SasToken);
+        if not BuildAuthenticatedBlobUrl(OutFullUrl, Url, OutErrorMsg) then
+            exit(false);
 
         Clear(Client);
         Clear(Request);
@@ -504,7 +511,6 @@ codeunit 50141 "Azure Blob Storage Client"
         ChunkInStream: InStream;
         ChunkOutStream: OutStream;
         ResponseText: Text;
-        SasToken: Text;
         BlockIdBase64: Text;
         BlockUrl: Text;
         BlockListUrl: Text;
@@ -517,11 +523,6 @@ codeunit 50141 "Azure Blob Storage Client"
         ResponseHeaders: HttpHeaders;
         Values: array[1] of Text;
     begin
-        if not GetSasToken(SasToken) then begin
-            OutErrorMsg := SetupNotConfiguredErr;
-            exit(false);
-        end;
-
         OutFullUrl := CopyStr(StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath), 1, 1000);
 
         ChunkSizeBytes := ArchiveSetup."Chunk Size (MB)" * 1048576;
@@ -547,7 +548,8 @@ codeunit 50141 "Azure Blob Storage Client"
             TempBlob.CreateInStream(ChunkInStream);
 
             BlockUrl := StrSubstNo(BlockUploadUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath, BlockIdBase64);
-            BlockUrl := AppendSasToken(BlockUrl, SasToken);
+            if not BuildAuthenticatedBlobUrl(BlockUrl, BlockUrl, OutErrorMsg) then
+                exit(false);
 
             Clear(Client);
             Clear(Request);
@@ -580,7 +582,8 @@ codeunit 50141 "Azure Blob Storage Client"
 
         // Commit Block List
         BlockListUrl := StrSubstNo(BlockListUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath);
-        BlockListUrl := AppendSasToken(BlockListUrl, SasToken);
+        if not BuildAuthenticatedBlobUrl(BlockListUrl, BlockListUrl, OutErrorMsg) then
+            exit(false);
         Clear(Client);
         Clear(Request);
         Clear(Headers);
@@ -632,20 +635,15 @@ codeunit 50141 "Azure Blob Storage Client"
         ContentHeaders: HttpHeaders;
         Url: Text;
         ResponseText: Text;
-        SasToken: Text;
         Values: array[1] of Text;
     begin
         OutSize := 0;
         OutETag := '';
         OutMD5 := '';
 
-        if not GetSasToken(SasToken) then begin
-            OutErrorMsg := SetupNotConfiguredErr;
-            exit(false);
-        end;
-
         Url := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", SanitizedPath);
-        Url := AppendSasToken(Url, SasToken);
+        if not BuildAuthenticatedBlobUrl(Url, Url, OutErrorMsg) then
+            exit(false);
 
         Clear(Client);
         Clear(Request);
@@ -699,21 +697,106 @@ codeunit 50141 "Azure Blob Storage Client"
     procedure GenerateTemporaryViewUrl(QueueEntry: Record "Archive Queue Entry"): Text
     var
         ArchiveSetup: Record "Archive Setup";
-        SasToken: Text;
-        Url: Text;
+        BaseUrl: Text;
+        AuthUrl: Text;
+        ErrMsg: Text;
     begin
         if not ArchiveSetup.Get() then
             exit('');
 
-        if not GetSasToken(SasToken) then
-            exit(QueueEntry."Blob Full URL");
+        if QueueEntry."Blob Relative Path" <> '' then
+            BaseUrl := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", QueueEntry."Blob Relative Path")
+        else
+            BaseUrl := QueueEntry."Blob Full URL";
 
-        Url := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", QueueEntry."Blob Relative Path");
-        exit(AppendSasToken(Url, SasToken));
+        if BaseUrl = '' then
+            exit('');
+
+        if BuildAuthenticatedBlobUrl(BaseUrl, AuthUrl, ErrMsg) then
+            exit(AuthUrl);
+        exit('');
+    end;
+
+    procedure GenerateViewUrlFromMapping(LinkMapping: Record "Archive Link Mapping"): Text
+    var
+        ArchiveSetup: Record "Archive Setup";
+        BaseUrl: Text;
+        AuthUrl: Text;
+        ErrMsg: Text;
+    begin
+        if (LinkMapping."Blob Relative Path" <> '') and ArchiveSetup.Get() then
+            BaseUrl := StrSubstNo(BlobItemUrlLbl, ArchiveSetup."Storage Account Name", ArchiveSetup."Container Name", LinkMapping."Blob Relative Path")
+        else
+            BaseUrl := LinkMapping."Blob Full URL";
+
+        if BaseUrl = '' then
+            exit('');
+
+        if BuildAuthenticatedBlobUrl(BaseUrl, AuthUrl, ErrMsg) then
+            exit(AuthUrl);
+        exit('');
+    end;
+
+    procedure BuildAuthenticatedBlobUrl(BaseUrl: Text; var OutAuthenticatedUrl: Text; var OutErrorMsg: Text): Boolean
+    var
+        SasToken: Text;
+        CleanToken: Text;
+    begin
+        OutAuthenticatedUrl := '';
+        if BaseUrl = '' then begin
+            OutErrorMsg := SetupNotConfiguredErr;
+            exit(false);
+        end;
+
+        if not GetSasToken(SasToken) then begin
+            OutErrorMsg := SetupNotConfiguredErr;
+            exit(false);
+        end;
+
+        CleanToken := CleanSasToken(SasToken);
+        if (CleanToken = '') or (not CleanToken.Contains('sig=')) then begin
+            OutErrorMsg := InvalidSasTokenFormatErr;
+            exit(false);
+        end;
+
+        OutAuthenticatedUrl := AppendSasToken(BaseUrl, CleanToken);
+        exit(true);
+    end;
+
+    procedure ValidateAdminPermission()
+    begin
+        if not HasAdminPermission() then
+            Error(AdminPermissionErr);
+    end;
+
+    procedure HasAdminPermission(): Boolean
+    var
+        AccessControl: Record "Access Control";
+        ArchiveSetup: Record "Archive Setup";
+        CurrentCompany: Text[30];
+    begin
+        CurrentCompany := CopyStr(CompanyName(), 1, 30);
+        AccessControl.SetRange("User Security ID", UserSecurityId());
+        AccessControl.SetFilter("Company Name", '%1|%2', '', CurrentCompany);
+        if AccessControl.FindSet(false) then
+            repeat
+                if (AccessControl."Role ID" = SuperRoleLbl) or
+                   (AccessControl."Role ID" = AdminPermSetRoleLbl)
+                then
+                    exit(true);
+
+                if ArchiveSetup.Get() then
+                    if (ArchiveSetup."Approver Role ID" <> '') and (AccessControl."Role ID" = ArchiveSetup."Approver Role ID") then
+                        exit(true);
+            until AccessControl.Next() = 0;
+
+        exit(false);
     end;
 
     procedure SetSasToken(SasToken: Text)
     begin
+        ValidateAdminPermission();
+
         if SasToken = '' then begin
             if IsolatedStorage.Contains(SasTokenStorageKeyLbl, DataScope::Company) then
                 IsolatedStorage.Delete(SasTokenStorageKeyLbl, DataScope::Company);
@@ -941,13 +1024,16 @@ codeunit 50141 "Azure Blob Storage Client"
     end;
 
     local procedure RecordQueueError(var QueueEntry: Record "Archive Queue Entry"; ErrorMsg: Text)
+    var
+        SafeErrorMsg: Text;
     begin
+        SafeErrorMsg := RedactSasFromText(ErrorMsg);
         QueueEntry."Archive Status" := QueueEntry."Archive Status"::Failed;
         QueueEntry."Retry Count" += 1;
-        QueueEntry."Last Error Message" := CopyStr(ErrorMsg, 1, MaxStrLen(QueueEntry."Last Error Message"));
+        QueueEntry."Last Error Message" := CopyStr(SafeErrorMsg, 1, MaxStrLen(QueueEntry."Last Error Message"));
         QueueEntry.Modify(false);
 
-        RecordAuditLog(QueueEntry, Enum::"Archive Audit Action"::VerifyFailed, 'Failed', ErrorMsg, '');
+        RecordAuditLog(QueueEntry, Enum::"Archive Audit Action"::VerifyFailed, 'Failed', SafeErrorMsg, '');
     end;
 
     local procedure RecordAuditLog(
@@ -968,9 +1054,19 @@ codeunit 50141 "Azure Blob Storage Client"
         AuditLog."Action Type" := ActionType;
         AuditLog."Old Status" := Format(QueueEntry."Archive Status");
         AuditLog."New Status" := NewStatus;
-        AuditLog."Message" := CopyStr(Msg, 1, MaxStrLen(AuditLog."Message"));
-        AuditLog."Verification Proof" := CopyStr(Proof, 1, MaxStrLen(AuditLog."Verification Proof"));
+        AuditLog."Message" := CopyStr(RedactSasFromText(Msg), 1, MaxStrLen(AuditLog."Message"));
+        AuditLog."Verification Proof" := CopyStr(RedactSasFromText(Proof), 1, MaxStrLen(AuditLog."Verification Proof"));
         AuditLog.Insert(true);
+    end;
+
+    local procedure RedactSasFromText(InputText: Text): Text
+    var
+        SigPos: Integer;
+    begin
+        SigPos := StrPos(InputText, 'sig=');
+        if SigPos > 0 then
+            exit(CopyStr(InputText, 1, SigPos + 3) + '[REDACTED]');
+        exit(InputText);
     end;
 
     local procedure ValidateEnvironmentGuard(ArchiveSetup: Record "Archive Setup")

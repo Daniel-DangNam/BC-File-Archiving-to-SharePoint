@@ -49,4 +49,8 @@ enum 50142 "Archive Audit Action"
     {
         Caption = 'Error';
     }
+    value(11; CapacityOverview)
+    {
+        Caption = 'Capacity Overview (Estimate Only)';
+    }
 }

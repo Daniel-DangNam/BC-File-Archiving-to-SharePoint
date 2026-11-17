@@ -144,12 +144,26 @@ page 50141 "Azure Blob Archive Queue"
     {
         area(Processing)
         {
+            action(CapacityOverview)
+            {
+                ApplicationArea = All;
+                Caption = 'Capacity Overview (Estimate Only)';
+                Image = CalculateBalanceAccount;
+                ToolTip = 'Estimates total attachment capacity across all records without Cut-Off Date and without creating Queue entries or purging (Admin only).';
+
+                trigger OnAction()
+                var
+                    DryRunScanner: Codeunit "Archive Dry-Run Scanner";
+                begin
+                    DryRunScanner.RunCapacityOverview(true);
+                end;
+            }
             action(RunDryRun)
             {
                 ApplicationArea = All;
                 Caption = 'Run Preview / Dry Run';
                 Image = Start;
-                ToolTip = 'Scans attachments matching the Cut-Off Date and populates the queue in Draft mode.';
+                ToolTip = 'Scans attachments matching the Cut-Off Date Rule and Cut-Off Date in Setup, populating the queue in Draft mode.';
 
                 trigger OnAction()
                 var
@@ -157,7 +171,7 @@ page 50141 "Azure Blob Archive Queue"
                     DryRunScanner: Codeunit "Archive Dry-Run Scanner";
                 begin
                     ArchiveSetup.Get();
-                    DryRunScanner.RunDryRun(ArchiveSetup, WorkDate(), true);
+                    DryRunScanner.RunDryRun(ArchiveSetup, ArchiveSetup."Cut-Off Date", true);
                     CurrPage.Update(false);
                 end;
             }
@@ -174,7 +188,7 @@ page 50141 "Azure Blob Archive Queue"
                     DryRunScanner: Codeunit "Archive Dry-Run Scanner";
                 begin
                     ArchiveSetup.Get();
-                    DryRunScanner.ExportSkippedBreakdownCsv(ArchiveSetup, WorkDate());
+                    DryRunScanner.ExportSkippedBreakdownCsv(ArchiveSetup, ArchiveSetup."Cut-Off Date");
                 end;
             }
             action(ExportDateFieldBreakdown)
@@ -190,7 +204,7 @@ page 50141 "Azure Blob Archive Queue"
                     DryRunScanner: Codeunit "Archive Dry-Run Scanner";
                 begin
                     ArchiveSetup.Get();
-                    DryRunScanner.ExportDateFieldBreakdownCsv(ArchiveSetup, WorkDate());
+                    DryRunScanner.ExportDateFieldBreakdownCsv(ArchiveSetup, ArchiveSetup."Cut-Off Date");
                 end;
             }
             action(UploadToBlob)
@@ -315,6 +329,9 @@ page 50141 "Azure Blob Archive Queue"
             {
                 Caption = 'Process';
 
+                actionref(CapacityOverview_Promoted; CapacityOverview)
+                {
+                }
                 actionref(RunDryRun_Promoted; RunDryRun)
                 {
                 }
@@ -353,4 +370,11 @@ page 50141 "Azure Blob Archive Queue"
             }
         }
     }
+
+    trigger OnOpenPage()
+    var
+        BlobClient: Codeunit "Azure Blob Storage Client";
+    begin
+        BlobClient.ValidateAdminPermission();
+    end;
 }

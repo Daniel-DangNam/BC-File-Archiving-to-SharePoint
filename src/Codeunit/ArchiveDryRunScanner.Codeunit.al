@@ -21,15 +21,20 @@ codeunit 50140 "Archive Dry-Run Scanner"
 
     trigger OnRun()
     begin
-        RunDryRun(Rec, WorkDate(), false);
+        RunDryRun(Rec, Rec."Cut-Off Date", false);
     end;
 
     procedure RunDryRun(ArchiveSetup: Record "Archive Setup"; CutOffDate: Date; ShowSummary: Boolean)
     var
+        BlobClient: Codeunit "Azure Blob Storage Client";
         TotalFiles: Integer;
         TotalBytes: BigInteger;
         SkippedEmptyDate: Integer;
     begin
+        BlobClient.ValidateAdminPermission();
+        if CutOffDate = 0D then
+            Error(CutOffDateRequiredErr);
+
         RunDryRunForCompany(ArchiveSetup, CopyStr(CompanyName(), 1, 30), CutOffDate, TotalFiles, TotalBytes, SkippedEmptyDate);
 
         if ShowSummary then
@@ -45,8 +50,13 @@ codeunit 50140 "Archive Dry-Run Scanner"
         var OutSkippedEmptyDate: Integer)
     var
         AuditLog: Record "Archive Audit Log";
+        BlobClient: Codeunit "Azure Blob Storage Client";
         CutOffRuleText: Text[50];
     begin
+        BlobClient.ValidateAdminPermission();
+        if CutOffDate = 0D then
+            Error(CutOffDateRequiredErr);
+
         OutTotalFiles := 0;
         OutTotalBytes := 0;
         OutSkippedEmptyDate := 0;
@@ -69,6 +79,72 @@ codeunit 50140 "Archive Dry-Run Scanner"
         AuditLog."Message" := CopyStr(StrSubstNo(PreviewLogMsg, OutTotalFiles, OutTotalBytes, OutSkippedEmptyDate), 1, MaxStrLen(AuditLog."Message"));
         AuditLog."Verification Proof" := CopyStr(StrSubstNo(VerificationProofTxt, CutOffDate, CutOffRuleText), 1, MaxStrLen(AuditLog."Verification Proof"));
         AuditLog.Insert(true);
+    end;
+
+    procedure RunCapacityOverview(ShowSummary: Boolean)
+    var
+        DocAttachment: Record "Document Attachment";
+        IncDocAttachment: Record "Incoming Document Attachment";
+        TenantMedia: Record "Tenant Media";
+        AuditLog: Record "Archive Audit Log";
+        BlobClient: Codeunit "Azure Blob Storage Client";
+        TargetCompany: Text[30];
+        DocFiles: Integer;
+        DocBytes: BigInteger;
+        IncFiles: Integer;
+        IncBytes: BigInteger;
+        TotalFiles: Integer;
+        TotalBytes: BigInteger;
+        FileSize: BigInteger;
+    begin
+        BlobClient.ValidateAdminPermission();
+
+        TargetCompany := CopyStr(CompanyName(), 1, 30);
+
+        DocAttachment.ChangeCompany(TargetCompany);
+        DocAttachment.SetFilter("File Name", '<>%1', '');
+        if DocAttachment.FindSet(false) then
+            repeat
+                if TenantMedia.Get(DocAttachment."Document Reference ID".MediaId()) then begin
+                    TenantMedia.CalcFields(Content);
+                    FileSize := TenantMedia.Content.Length();
+                    if FileSize > 0 then begin
+                        DocFiles += 1;
+                        DocBytes += FileSize;
+                    end;
+                end;
+            until DocAttachment.Next() = 0;
+
+        IncDocAttachment.ChangeCompany(TargetCompany);
+        if IncDocAttachment.FindSet(false) then
+            repeat
+                IncDocAttachment.CalcFields(Content);
+                FileSize := IncDocAttachment.Content.Length();
+                if FileSize > 0 then begin
+                    IncFiles += 1;
+                    IncBytes += FileSize;
+                end;
+            until IncDocAttachment.Next() = 0;
+
+        TotalFiles := DocFiles + IncFiles;
+        TotalBytes := DocBytes + IncBytes;
+
+        // Record immutable audit entry clearly separated from Dry-Run / Purge
+        AuditLog.Init();
+        AuditLog."Log Entry No." := 0;
+        AuditLog."Queue Entry No." := 0;
+        AuditLog."Company Name" := TargetCompany;
+        AuditLog."Event DateTime" := CurrentDateTime();
+        AuditLog."User ID" := CopyStr(UserId(), 1, MaxStrLen(AuditLog."User ID"));
+        AuditLog."Action Type" := AuditLog."Action Type"::CapacityOverview;
+        AuditLog."Old Status" := '';
+        AuditLog."New Status" := 'Estimate Only';
+        AuditLog."Message" := CopyStr(StrSubstNo(CapacityLogMsg, TotalFiles, FormatBytes(TotalBytes), DocFiles, FormatBytes(DocBytes), IncFiles, FormatBytes(IncBytes)), 1, MaxStrLen(AuditLog."Message"));
+        AuditLog."Verification Proof" := CopyStr(CapacityProofTxt, 1, MaxStrLen(AuditLog."Verification Proof"));
+        AuditLog.Insert(true);
+
+        if ShowSummary then
+            Message(CapacitySummaryMsg, TotalFiles, FormatBytes(TotalBytes), DocFiles, FormatBytes(DocBytes), IncFiles, FormatBytes(IncBytes));
     end;
 
     local procedure ScanDocumentAttachments(
@@ -516,6 +592,7 @@ codeunit 50140 "Archive Dry-Run Scanner"
         PurchInvHeader: Record "Purch. Inv. Header";
         PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr.";
         AllObjWithCaption: Record AllObjWithCaption;
+        BlobClient: Codeunit "Azure Blob Storage Client";
         TempBlob: Codeunit "Temp Blob";
         CsvOutStream: OutStream;
         CsvInStream: InStream;
@@ -535,6 +612,10 @@ codeunit 50140 "Archive Dry-Run Scanner"
         FileName: Text;
         CrLf: Text[2];
     begin
+        BlobClient.ValidateAdminPermission();
+        if CutOffDate = 0D then
+            Error(CutOffDateRequiredErr);
+
         TargetCompany := CopyStr(CompanyName(), 1, 30);
         CrLf[1] := 13;
         CrLf[2] := 10;
@@ -721,6 +802,7 @@ codeunit 50140 "Archive Dry-Run Scanner"
         PurchCrMemoHdr: Record "Purch. Cr. Memo Hdr.";
         TenantMedia: Record "Tenant Media";
         AllObjWithCaption: Record AllObjWithCaption;
+        BlobClient: Codeunit "Azure Blob Storage Client";
         TempBlob: Codeunit "Temp Blob";
         CsvOutStream: OutStream;
         CsvInStream: InStream;
@@ -751,6 +833,10 @@ codeunit 50140 "Archive Dry-Run Scanner"
         DecMB: Decimal;
         TotalDecMB: Decimal;
     begin
+        BlobClient.ValidateAdminPermission();
+        if CutOffDate = 0D then
+            Error(CutOffDateRequiredErr);
+
         TargetCompany := CopyStr(CompanyName(), 1, 30);
         CrLf[1] := 13;
         CrLf[2] := 10;
@@ -957,4 +1043,8 @@ codeunit 50140 "Archive Dry-Run Scanner"
         CsvDateMatrixHeaderLbl: Label 'Company,Attachment Table ID,Target Source Table ID,Target Source Table Name,Document Type,Has Document Date,Has Order/Quote Date,Has Attachment SystemCreatedAt,Has Header SystemCreatedAt,Skipped File Count,Total Size (Bytes),Total Size (MB)', Locked = true;
         CsvDateMatrixRowLbl: Label '"%1",%2,%3,"%4","%5",%6,%7,%8,%9,%10,%11,%12', Locked = true;
         CsvDateMatrixTotalLbl: Label '"%1",TOTAL,0,"ALL SKIPPED FILES","ALL",-,-,-,-,%2,%3,%4', Locked = true;
+        CutOffDateRequiredErr: Label 'Cut-Off Date is required in Azure Blob Archive Setup before running Dry-Run or CSV Export.';
+        CapacitySummaryMsg: Label 'Capacity Overview (Estimate Only - No Cut-Off Date, No Queue Created):\- Total Attachments: %1 (%2)\- Document Attachment (Table 1173): %3 (%4)\- Incoming Document Attachment (Table 133): %5 (%6)\\Note: This is a read-only capacity estimate and cannot be used for Upload or Purge.', Comment = '%1=TotalFiles, %2=TotalSize, %3=DocFiles, %4=DocSize, %5=IncFiles, %6=IncSize';
+        CapacityLogMsg: Label 'CAPACITY ESTIMATE ONLY: Total %1 files (%2) | Table 1173: %3 (%4) | Table 133: %5 (%6). No Queue created.', Comment = '%1=TotalFiles, %2=TotalSize, %3=DocFiles, %4=DocSize, %5=IncFiles, %6=IncSize';
+        CapacityProofTxt: Label 'Estimate Only (No Cut-Off Date / No Queue / Not for Purge)', Locked = true;
 }

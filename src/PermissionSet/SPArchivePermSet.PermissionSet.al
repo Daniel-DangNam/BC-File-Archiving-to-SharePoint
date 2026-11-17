@@ -3,7 +3,7 @@ namespace APSS.FileArchiving;
 permissionset 50140 SPArchivePermSet
 {
     Assignable = true;
-    Caption = 'Azure Blob Archiving Perms', MaxLength = 30;
+    Caption = 'Azure Blob Archive Admin', MaxLength = 30;
     Permissions =
         table "Archive Setup" = X,
         tabledata "Archive Setup" = RMID,

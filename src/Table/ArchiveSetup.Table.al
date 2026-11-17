@@ -39,6 +39,10 @@ table 50140 "Archive Setup"
             OptionCaption = 'Posting Date,Document Date';
             InitValue = "Posting Date";
         }
+        field(23; "Cut-Off Date"; Date)
+        {
+            Caption = 'Cut-Off Date';
+        }
         field(21; "Batch Size"; Integer)
         {
             Caption = 'Batch Size (per Job Run)';

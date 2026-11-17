@@ -34,10 +34,11 @@ pageextension 50140 "Doc Attachment Details Ext" extends "Document Attachment De
                 trigger OnAction()
                 var
                     LinkMapping: Record "Archive Link Mapping";
+                    BlobClient: Codeunit "Azure Blob Storage Client";
                     ViewUrl: Text;
                 begin
                     if LinkMapping.Get(CopyStr(CompanyName(), 1, 30), Rec.SystemId) then begin
-                        ViewUrl := GetViewUrl(LinkMapping);
+                        ViewUrl := BlobClient.GenerateViewUrlFromMapping(LinkMapping);
                         if ViewUrl <> '' then
                             Hyperlink(ViewUrl)
                         else
@@ -60,28 +61,6 @@ pageextension 50140 "Doc Attachment Details Ext" extends "Document Attachment De
         LinkMapping: Record "Archive Link Mapping";
     begin
         IsArchivedToBlob := LinkMapping.Get(CopyStr(CompanyName(), 1, 30), Rec.SystemId);
-    end;
-
-    local procedure GetViewUrl(LinkMapping: Record "Archive Link Mapping"): Text
-    var
-        SasToken: Text;
-    begin
-        if LinkMapping."Blob Full URL" = '' then
-            exit('');
-
-        if not IsolatedStorage.Get('BLOB_ARCHIVE_SAS_TOKEN', DataScope::Company, SasToken) then
-            exit(LinkMapping."Blob Full URL");
-
-        while (SasToken <> '') and ((SasToken[1] = '?') or (SasToken[1] = '&')) do
-            SasToken := CopyStr(SasToken, 2);
-
-        if SasToken = '' then
-            exit(LinkMapping."Blob Full URL");
-
-        if LinkMapping."Blob Full URL".Contains('?') then
-            exit(LinkMapping."Blob Full URL" + '&' + SasToken);
-
-        exit(LinkMapping."Blob Full URL" + '?' + SasToken);
     end;
 
     var
