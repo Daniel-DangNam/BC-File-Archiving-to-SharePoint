@@ -437,12 +437,50 @@ Nhằm đáp ứng trọn vẹn tiêu chuẩn an toàn dữ liệu Enterprise, h
 
 ---
 
-## 18. Đánh Giá & Kết Luận Tổng Thể
+## 18. Bộ Kịch Bản Kiểm Thử Phiên Bản v1.0.0.9 (Cut-Off Date, Capacity Overview, Backend RBAC & SAS URL Centralization)
+
+### 18.1. TC-21: Trường `Cut-Off Date` Bắt Buộc Trên Setup Cho Dry-Run & CSV Export
+- **Mục tiêu:** Đảm bảo quản trị viên chủ động cấu hình `Cut-Off Date` trên `Azure Blob Archive Setup` (Page 50140) và hệ thống chặn chạy Dry-Run / CSV Breakdown khi `Cut-Off Date` để trống (`0D`).
+- **Quy trình kiểm thử & Kết quả thực tế:**
+  1. Để trống trường `Cut-Off Date`, bấm **`Run Preview / Dry Run`**: Hệ thống chặn và báo lỗi yêu cầu nhập `Cut-Off Date` (`CutOffDateRequiredErr`).
+  2. Nhập `11/17/2026` vào `Cut-Off Date`, bấm **`Run Preview / Dry Run`**: Hệ thống quét theo `Cut-Off Date Rule` + ngày `11/17/2026`, hiển thị chính xác `Ngày Cut-off: 11/17/26`.
+- **Đánh giá thực tế:** **PASSED**.
+
+### 18.2. TC-22: Tách Riêng Chức Năng `Capacity Overview (Estimate Only)` (Chỉ Admin)
+- **Mục tiêu:** Cung cấp công cụ ước lượng tổng dung lượng toàn bộ tệp đính kèm hiện có trong BC (Table `1173` & `133`) **không áp dụng Cut-Off Date**, **không tạo Queue Entry**, **không Upload/Purge**, và ghi Audit Log tách biệt hoàn toàn với Dry-Run.
+- **Quy trình kiểm thử & Kết quả thực tế:**
+  1. Bấm **`Capacity Overview (Estimate Only)`** trên `Azure Blob Archive Setup` (cả khi `Cut-Off Date` trống và khi đã nhập `11/17/2026`).
+  2. Hệ thống hiển thị popup ước lượng tổng dung lượng hiện tại trên `Sandbox20260305` sau khi đã dọn sạch các tệp đủ điều kiện: **737 tệp (162.26 MB)** gồm Table 1173: **9 tệp (2.37 MB)** và Table 133: **728 tệp (159.89 MB)**.
+  3. Kiểm tra `Archive Queue`: Không phát sinh bất kỳ bản ghi mới nào.
+  4. Kiểm tra `Archive Audit Logs`: Ghi nhận dòng mới với `Action Type = Capacity Overview (Estimate Only)`, `New Status = Estimate Only`, kèm proof `Estimate Only (No Cut-Off Date / No Queue / Not for Purge)`.
+- **Đánh giá thực tế:** **PASSED**.
+
+### 18.3. TC-23: Phân Quyền Chặt Chẽ Admin/Approver vs End-User Ở Tầng Backend (Codeunit & Page)
+- **Mục tiêu:** Đảm bảo chỉ Admin/Approver (`SUPER`, `SPARCHIVEPERMSET`, hoặc Role cấu hình tại `Approver Role ID`) mới được truy cập Setup/Queue/Audit Logs và thực thi Capacity Overview/Dry-Run/Upload/Verify/Purge; End-User (`SPARCHIVEENDUSERPERM`) chỉ được mở file từ chứng từ gốc.
+- **Quy trình kiểm thử & Kết quả thực tế:**
+  1. **Tài khoản End-User (chỉ gán `SPArchiveEndUserPerm`):**
+     - Mở `Azure Blob Archive Setup`, `Queue`, hoặc `Audit Logs`: Hệ thống chặn ngay tại backend (`ValidateAdminPermission`) với lỗi `Access Denied`.
+     - Mở chứng từ gốc (`Sales Order` / `Incoming Document`) và bấm **`Open from Azure Blob`**: Mở xem tệp trực tiếp từ Azure Blob bình thường.
+  2. **Tài khoản Admin/Approver (`SPArchivePermSet` / `Approver Role ID`):**
+     - Mở đầy đủ các màn hình quản trị và thực thi toàn bộ thao tác thành công.
+- **Đánh giá thực tế:** **PASSED**.
+
+### 18.4. TC-24: Chuẩn Hóa 1 Hàm Chung Tạo SAS URL & Che Giấu SAS Token Trong Database / Audit Logs
+- **Mục tiêu:** Đảm bảo SAS Token chỉ lưu mã hóa trong `IsolatedStorage`; Database (`Archive Queue Entry`, `Archive Link Mapping`) và `Archive Audit Log` chỉ lưu Clean Blob URL; toàn bộ `PUT Blob`, `PUT Block`, `PUT BlockList`, `HEAD Verify`, `GET TestConnection`, và `Open from Azure Blob` dùng chung hàm `BuildAuthenticatedBlobUrl`.
+- **Quy trình kiểm thử & Kết quả thực tế:**
+  1. Kiểm tra `Blob Full URL` trong Queue/Mapping và `Message`/`Verification Proof` trong Audit Log: 100% là Clean URL, không chứa chuỗi `?sv=...&sig=...` (có cơ chế `RedactSasFromText` phòng ngừa rò rỉ trong thông báo lỗi).
+  2. Test mở file qua `Open from Azure Blob` trên cả 3 PageExtension (`DocAttachmentDetailsExt`, `IncDocAttachmentsExt`, `IncDocAttachFactBoxExt`) sau khi gom về `GenerateViewUrlFromMapping`: Hoạt động ổn định 100%.
+- **Đánh giá thực tế:** **PASSED**.
+
+---
+
+## 19. Đánh Giá & Kết Luận Tổng Thể
 
 - **Tiến độ tổng thể:**
-  - **Hoàn thành xuất sắc toàn diện 20/20 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9` và đạt chuẩn kiểm thử tải cao trên Sandbox `Sandbox20260305` (100.83 GB):
+  - **Hoàn thành xuất sắc toàn diện 24/24 kịch bản kiểm thử (100% PASS RATE)** trên môi trường Business Central Cloud Sandbox `June9` và Sandbox `Sandbox20260305` (100.83 GB):
     - **TC-01 đến TC-14:** Toàn bộ pipeline Dry-Run, Test Connection, Upload & Byte-exact Verification, Batch Process, Path Sanitize, Link Mapping, Strict No-Fallback, Security Guard, Purge Single & Batch, User Experience, Anti-Double Purge, Audit Trail, Network Negative Tests (100% PASSED).
     - **TC-15 đến TC-20:** Toàn bộ kịch bản thảm họa (Disaster Recovery - Expired SAS, Missing Remote Blob), Khôi phục liên kết khi mất mapping, 4 Chốt chặn an toàn dữ liệu (No Size Fallback, Cryptographic Hash Match, Unique SystemId Blob Path, Missing Source Record Fail), Xuất báo cáo CSV Breakdown 22,458 tệp skip, và Kiểm chứng nút `Open from Azure Blob` trên cả 2 bảng (100% PASSED).
+    - **TC-21 đến TC-24 (v1.0.0.9):** Trường `Cut-Off Date` bắt buộc trên Setup, tách riêng `Capacity Overview (Estimate Only)`, phân quyền Backend RBAC (`SPArchivePermSet` vs `SPArchiveEndUserPerm`), và chuẩn hóa 1 hàm chung tạo SAS URL không lộ token trong DB/Logs (100% PASSED).
     - **TC-01:** Chế độ Preview / Dry-Run Scanner (Đã kiểm chứng cả trên quy mô nhỏ 121 tệp và quy mô lớn 35,281 tệp).
     - **TC-02:** Kiểm tra kết nối Azure Blob (Test Connection - HTTP 200 OK).
     - **TC-03:** Upload tệp nhỏ & Two-Way Byte-Exact Verification qua HEAD Blob.

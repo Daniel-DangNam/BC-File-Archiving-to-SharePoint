@@ -78,6 +78,7 @@ Màn hình cấu hình chính gồm 4 nhóm thông tin (FastTabs):
 | Tên Trường (Field) | Kiểu Dữ Liệu | Mục Đích & Hướng Dẫn Sử Dụng |
 | :--- | :--- | :--- |
 | **Cut-Off Date Basis** | Enum | Tiêu chí ngày do Quản trị viên chỉ định cố định theo loại chứng từ để so khớp với Cut-Off Date: <br>- `Posting Date`: Ngày ghi sổ (chuẩn mực kế toán & kiểm toán tài chính). <br>- `Document Date`: Ngày chứng từ thực tế. <br>- `Creation Date`: Ngày tạo bản ghi đính kèm. |
+| **Cut-Off Date** | Date | Ngày chốt bắt buộc phải nhập trước khi chạy `Run Preview / Dry Run` hoặc `Export CSV Breakdown`. Riêng nút `Capacity Overview (Estimate Only)` sẽ bỏ qua trường này để ước lượng toàn bộ dung lượng hiện có (không tạo Queue/Purge). |
 | **Batch Size (per Job Run)** | Integer | Số lượng tệp tối đa xử lý trong mỗi mẻ (mặc định: `50`). Giúp phân bổ tài nguyên và chống nghẽn đường truyền mạng. |
 | **Chunk Size (MB)** | Integer | Kích thước mỗi khối dữ liệu khi upload tệp lớn $> 4\text{ MB}$ (mặc định: `4 MB`). Hệ thống tự động chia nhỏ thành các block (`Put Block`) và hoàn tất bằng `Put Block List`. |
 
@@ -86,6 +87,11 @@ Màn hình cấu hình chính gồm 4 nhóm thông tin (FastTabs):
 > End-user khi chạy quét chỉ nhập duy nhất giá trị **Cut-off Date**, không được tự ý đổi trường ngày. Nếu chứng từ thiếu ngày cấu hình (ngày bị trống), hệ thống **ngay lập tức bỏ qua (Skip)** và ghi cảnh báo vào Audit Log, tuyệt đối **không tự ý fallback** sang ngày khác để đảm bảo tính nhất quán kiểm toán.
 
 ---
+
+> [!IMPORTANT]
+> **Phân Quyền Tách Biệt (Admin/Approver vs End-User - Kiểm Tra Tại Backend):**
+> - **Permission Set `SPArchivePermSet` (`50140` - Azure Blob Archive Admin)** hoặc Role được gán trong **`Approver Permission Role ID`** / `SUPER`: Toàn quyền vào `Archive Setup`, `Archive Queue`, `Audit Logs`, chạy `Capacity Overview (Estimate Only)`, `Dry Run`, `Upload/Verify`, và `Purge`.
+> - **Permission Set `SPArchiveEndUserPerm` (`50141` - Azure Blob Archive User):** Chỉ được phép mở xem/tải tệp đã archive trực tiếp từ chứng từ gốc (`Open from Azure Blob`). Mọi truy cập vào trang quản trị hoặc hàm backend đều bị chặn bởi `ValidateAdminPermission()`.
 
 ### 2.4. FastTab 4: Approval & Safety Controls (Kiểm Soát Phê Duyệt An Toàn)
 | Tên Trường (Field) | Kiểu Dữ Liệu | Mục Đích & Hướng Dẫn Sử Dụng |
